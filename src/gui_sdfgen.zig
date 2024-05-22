@@ -107,6 +107,9 @@ fn abstractions(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) 
     // std.debug.print("{s}", .{xml});
 }
 
+// Compile: zig build wasm
+// Copy to GUI repo: cp zig-out/bin/gui_sdfgen.wasm ../lionsos_vis/public
+
 export fn jsonToXml(input_ptr: [*]const u8, input_len: usize, result_ptr: [*]u8) usize {
     const input = input_ptr[0..input_len];
 
