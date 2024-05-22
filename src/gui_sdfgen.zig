@@ -50,7 +50,7 @@ const MicrokitBoard = enum {
     }
 };
 
-fn abstractions(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) void {
+fn abstractions(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) usize {
     const image = ProgramImage.create("uart_driver.elf");
     var driver = Pd.create(sdf, "uart_driver", image);
     sdf.addProtectionDomain(&driver);
@@ -73,7 +73,7 @@ fn abstractions(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) 
     if (uart_node == null) {
         // std.log.err("Could not find UART node '{s}'", .{board.uartNode()});
         // std.process.exit(1);
-        return;
+        return 9999;
     }
 
     var serial_system = sddf.SerialSystem.init(allocator, sdf, 0x200000);
@@ -94,6 +94,7 @@ fn abstractions(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) 
     const client1_image = ProgramImage.create("client1.elf");
     var client1_pd = Pd.create(sdf, "client1", client1_image);
     serial_system.addClient(&client1_pd);
+
     sdf.addProtectionDomain(&client1_pd);
 
     const client2_image = ProgramImage.create("client2.elf");
@@ -102,9 +103,13 @@ fn abstractions(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) 
     sdf.addProtectionDomain(&client2_pd);
 
     serial_system.connect() catch {};
+    if (2 != 0) {
+        return 999;
+    }
 
     // const xml = try sdf.toXml();
     // std.debug.print("{s}", .{xml});
+    return 0;
 }
 
 // Compile: zig build wasm
@@ -142,10 +147,12 @@ export fn jsonToXml(input_ptr: [*]const u8, input_len: usize, result_ptr: [*]u8)
             return 201;
         };
     }
+
     // Add final terminal byte
     dtb_bytes.append(0) catch {
         return 202;
     };
+
     var blob = dtb.parse(allocator, dtb_bytes.items) catch |err| {
         return switch (err) {
             error.BadValue => 10,
@@ -157,7 +164,7 @@ export fn jsonToXml(input_ptr: [*]const u8, input_len: usize, result_ptr: [*]u8)
             error.UnsupportedVersion => 16,
             error.BadStructure => 17,
             error.EOF => 18,
-            error.Internal => 19
+            error.Internal => 19,
         };
     };
     // TODO: the allocator should already be known by the DTB...
@@ -167,7 +174,10 @@ export fn jsonToXml(input_ptr: [*]const u8, input_len: usize, result_ptr: [*]u8)
         return 4;
     };
 
-    abstractions(allocator, &sdf, blob);
+    const ret = abstractions(allocator, &sdf, blob);
+    if (ret != 0) {
+        return ret;
+    }
 
     const xml = sdf.toXml() catch {
         return 5;
