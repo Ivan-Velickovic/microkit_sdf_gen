@@ -127,7 +127,7 @@ export fn jsonToXml(input_ptr: [*]const u8, input_len: usize, result_ptr: [*]u8)
 
     const blob_bytes = object.get("dtb").?.string;
     var blob = dtb.parse(allocator, blob_bytes) catch {
-        return blob_bytes;
+        return blob_bytes.len;
     };
     // TODO: the allocator should already be known by the DTB...
     defer blob.deinit(allocator);
