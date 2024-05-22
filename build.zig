@@ -56,7 +56,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
     pysdfgen.linker_allow_shlib_undefined = true;
-    pysdfgen.addIncludePath(.{ .path = "/usr/include/python3.10" });
+    pysdfgen.addIncludePath(.{ .path = "/Users/terrybai/miniconda3/bin/python" });
     pysdfgen.root_module.addImport("sdf", modsdf);
     pysdfgen.linkLibC();
     // TODO: should probably check if the library exists first...
@@ -89,4 +89,27 @@ pub fn build(b: *std.Build) !void {
     c_example_step.dependOn(&c_example_cmd.step);
     const c_example_install = b.addInstallArtifact(c_example, .{});
     c_example_step.dependOn(&c_example_install.step);
+
+    // now the wasm bundle
+    // this does not work, errors detailed below
+    const wasm_target = b.resolveTargetQuery(.{
+        .cpu_arch = .wasm32,
+        .os_tag = .freestanding,
+    });
+    const wasm = b.addExecutable(.{
+        .name = "gui_sdfgen",
+        .root_source_file = .{ .path = "src/gui_sdfgen.zig" },
+        .target = wasm_target,
+        .optimize = .ReleaseSmall,
+    });
+
+    wasm.root_module.addImport("dtb", dtb_module);
+    // wasm.linkLibrary(dtbzig_dep.artifact("dtb"));
+    wasm.rdynamic = true;
+    wasm.entry = .disabled;
+
+    const wasm_step = b.step("wasm", "build wasm");
+
+    const wasm_install = b.addInstallArtifact(wasm, .{});
+    wasm_step.dependOn(&wasm_install.step);
 }
