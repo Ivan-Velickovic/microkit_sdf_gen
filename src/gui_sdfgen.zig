@@ -128,9 +128,37 @@ export fn jsonToXml(input_ptr: [*]const u8, input_len: usize, result_ptr: [*]u8)
         return 2;
     };
 
-    const blob_bytes = object.get("dtb").?.string;
-    var blob = dtb.parse(allocator, blob_bytes) catch {
-        return blob_bytes.len;
+    const blob_bytes = object.get("dtb").?.array;
+
+    // We take the 64-bit integer array of the DTB from JS and convert it to an
+    // array of bytes.
+    var dtb_bytes = std.ArrayList(u8).initCapacity(allocator, blob_bytes.items.len + 1) catch {
+        return 200;
+    };
+    defer dtb_bytes.deinit();
+    var i: usize = 0;
+    while (i < blob_bytes.items.len) : (i += 1) {
+        dtb_bytes.append(@intCast(blob_bytes.items[i].integer)) catch {
+            return 201;
+        };
+    }
+    // Add final terminal byte
+    dtb_bytes.append(0) catch {
+        return 202;
+    };
+    var blob = dtb.parse(allocator, dtb_bytes.items) catch |err| {
+        return switch (err) {
+            error.BadValue => 10,
+            error.UnsupportedCells => 11,
+            error.MissingCells => 12,
+            error.OutOfMemory => 13,
+            error.Truncated => 14,
+            error.BadMagic => 15,
+            error.UnsupportedVersion => 16,
+            error.BadStructure => 17,
+            error.EOF => 18,
+            error.Internal => 19
+        };
     };
     // TODO: the allocator should already be known by the DTB...
     defer blob.deinit(allocator);
