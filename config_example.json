@@ -1,0 +1,22 @@
+{
+    "resources": {
+        "regions": [
+            {
+                "name": "tx_data",
+                "perms": "rw",
+                "cached": true,
+                "setvar_vaddr": "tx_data",
+                "page_size": 2097152,
+                "size": 2097152
+            },
+            {
+                "name": "rx_data",
+                "perms": "rw",
+                "cached": true,
+                "setvar_vaddr": "rx_data",
+                "page_size": 2097152,
+                "size": 2097152
+            }
+        ]
+    }
+}
