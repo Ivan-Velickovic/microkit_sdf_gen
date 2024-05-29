@@ -25,12 +25,14 @@ pub fn build(b: *std.Build) !void {
     const dtb_module = dtbzig_dep.module("dtb");
     sdfgen.root_module.addImport("dtb", dtb_module);
 
-    const sdfgen_cmd = b.addRunArtifact(sdfgen);
-    if (b.args) |args| {
-        sdfgen_cmd.addArgs(args);
-    }
+    // @ericc: b.args is never populated by zig(??), so running th sdfgen won't work for now
+    // const sdfgen_cmd = b.addRunArtifact(sdfgen);
+    // std.debug.print("args: {any}\n", .{b.args});
+    // if (b.args) |args| {
+    //     sdfgen_cmd.addArgs(args);
+    // }
+    // sdfgen_step.dependOn(&sdfgen_cmd.step);
 
-    sdfgen_step.dependOn(&sdfgen_cmd.step);
     const sdfgen_install = b.addInstallArtifact(sdfgen, .{});
     sdfgen_step.dependOn(&sdfgen_install.step);
 
