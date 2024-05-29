@@ -280,7 +280,7 @@ pub const SystemDescription = struct {
             path: []const u8,
 
             pub fn create(path: []const u8) ProgramImage {
-                return .{ .path = path };
+                return ProgramImage{ .path = path };
             }
 
             pub fn toXml(program_image: *const ProgramImage, sdf: *SystemDescription, writer: ArrayList(u8).Writer, separator: []const u8) !void {
