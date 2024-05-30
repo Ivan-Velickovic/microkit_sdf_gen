@@ -338,7 +338,7 @@ pub const SerialSystem = struct {
     const REGIONS = [_][]const u8{ "data", "used", "free" };
 
     pub fn init(allocator: Allocator, sdf: *SystemDescription, region_size: usize) SerialSystem {
-        const page_size = SystemDescription.MemoryRegion.PageSize.optimal(sdf, region_size);
+        const page_size = SystemDescription.MemoryRegion.PageSize.optimal(sdf.arch, region_size);
         return .{
             .allocator = allocator,
             .sdf = sdf,

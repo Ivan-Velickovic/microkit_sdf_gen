@@ -64,7 +64,7 @@ pub const VirtualMachineSystem = struct {
                 const guest_mr_name = std.fmt.allocPrint(system.allocator, "guest_ram_{s}", .{ vm.name }) catch @panic("OOM");
                 // TODO: get RAM size from the memory node from DTB
                 const guest_ram_size = 1024 * 1024 * 256;
-                const guest_ram_mr = Mr.create(sdf, guest_mr_name, guest_ram_size, null, Mr.PageSize.optimal(sdf, guest_ram_size));
+                const guest_ram_mr = Mr.create(sdf, guest_mr_name, guest_ram_size, null, Mr.PageSize.optimal(sdf.arch, guest_ram_size));
                 sdf.addMemoryRegion(guest_ram_mr);
                 // TODO: vaddr should come from the memory node from DTB
                 const vm_guest_ram_perms: Map.Permissions = .{ .read = true, .write = true, .execute = true };
