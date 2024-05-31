@@ -28,6 +28,105 @@ var classes: std.ArrayList(Config.DeviceClass) = undefined;
 
 const CONFIG_FILENAME = "config.json";
 
+pub const Config = struct {
+    const Region = struct {
+        /// Name of the region
+        name: []const u8,
+        /// Permissions to the region of memory once mapped in
+        perms: []const u8,
+        // TODO: do we need cached or can we decide based on the type?
+        cached: bool,
+        setvar_vaddr: ?[]const u8,
+        page_size: usize,
+        size: usize,
+    };
+
+    /// The actual IRQ number that gets registered with seL4
+    /// is something we can determine from the device tree.
+    const Irq = struct {
+        name: []const u8,
+        channel_id: usize,
+    };
+
+    pub const Component = struct {
+        name: []const u8,
+        type: []const u8,
+        // resources: Resources,
+    };
+
+    /// In the case of drivers there is some extra information we want
+    /// to store that is not specified in the JSON configuration.
+    /// For example, the device class that the driver belongs to.
+    pub const Driver = struct {
+        name: []const u8,
+        class: DeviceClass.Class,
+        compatible: []const []const u8,
+        resources: Resources,
+
+        const Resources = struct {
+            device_regions: []const Region,
+            shared_regions: []const Region,
+            irqs: []const Irq,
+        };
+
+        pub const Json = struct {
+            name: []const u8,
+            compatible: []const []const u8,
+            resources: Resources,
+        };
+
+        pub fn fromJson(json: Json, class: []const u8) Driver {
+            return .{
+                .name = json.name,
+                .class = DeviceClass.Class.fromStr(class),
+                .compatible = json.compatible,
+                .resources = json.resources,
+            };
+        }
+    };
+
+    pub const DeviceClass = struct {
+        class: Class,
+        resources: Resources,
+
+        const Json = struct {
+            resources: Resources,
+        };
+
+        pub fn fromJson(json: Json, class: []const u8) DeviceClass {
+            return .{
+                .class = DeviceClass.Class.fromStr(class),
+                .resources = json.resources,
+            };
+        }
+
+        /// These are the sDDF device classes that we expect to exist in the
+        /// repository and will be searched through.
+        /// You could instead have something in the repisitory to list the
+        /// device classes or organise the repository differently, but I do
+        /// not see the need for that kind of complexity at this time.
+        const Class = enum {
+            network,
+            serial,
+
+            pub fn fromStr(str: []const u8) Class {
+                inline for (std.meta.fields(Class)) |field| {
+                    if (std.mem.eql(u8, str, field.name)) {
+                        return @enumFromInt(field.value);
+                    }
+                }
+
+                // TODO: don't panic
+                @panic("Unexpected device class string given");
+            }
+        };
+
+        const Resources = struct {
+            regions: []const Region,
+        };
+    };
+};
+
 /// Assumes probe() has been called
 pub fn findDriver(compatibles: []const []const u8) ?Config.Driver {
     for (drivers.items) |driver| {
@@ -144,105 +243,6 @@ pub fn probe(allocator: Allocator, path: []const u8) !void {
         }
     }
 }
-
-pub const Config = struct {
-    const Region = struct {
-        /// Name of the region
-        name: []const u8,
-        /// Permissions to the region of memory once mapped in
-        perms: []const u8,
-        // TODO: do we need cached or can we decide based on the type?
-        cached: bool,
-        setvar_vaddr: ?[]const u8,
-        page_size: usize,
-        size: usize,
-    };
-
-    /// The actual IRQ number that gets registered with seL4
-    /// is something we can determine from the device tree.
-    const Irq = struct {
-        name: []const u8,
-        channel_id: usize,
-    };
-
-    /// In the case of drivers there is some extra information we want
-    /// to store that is not specified in the JSON configuration.
-    /// For example, the device class that the driver belongs to.
-    pub const Driver = struct {
-        name: []const u8,
-        class: DeviceClass.Class,
-        compatible: []const []const u8,
-        resources: Resources,
-
-        const Resources = struct {
-            device_regions: []const Region,
-            shared_regions: []const Region,
-            irqs: []const Irq,
-        };
-
-        pub const Json = struct {
-            name: []const u8,
-            compatible: []const []const u8,
-            resources: Resources,
-        };
-
-        pub fn fromJson(json: Json, class: []const u8) Driver {
-            return .{
-                .name = json.name,
-                .class = DeviceClass.Class.fromStr(class),
-                .compatible = json.compatible,
-                .resources = json.resources,
-            };
-        }
-    };
-
-    pub const Component = struct {
-        name: []const u8,
-        type: []const u8,
-        // resources: Resources,
-    };
-
-    pub const DeviceClass = struct {
-        class: Class,
-        resources: Resources,
-
-        const Json = struct {
-            resources: Resources,
-        };
-
-        pub fn fromJson(json: Json, class: []const u8) DeviceClass {
-            return .{
-                .class = DeviceClass.Class.fromStr(class),
-                .resources = json.resources,
-            };
-        }
-
-        /// These are the sDDF device classes that we expect to exist in the
-        /// repository and will be searched through.
-        /// You could instead have something in the repisitory to list the
-        /// device classes or organise the repository differently, but I do
-        /// not see the need for that kind of complexity at this time.
-        const Class = enum {
-            network,
-            serial,
-
-            pub fn fromStr(str: []const u8) Class {
-                inline for (std.meta.fields(Class)) |field| {
-                    if (std.mem.eql(u8, str, field.name)) {
-                        return @enumFromInt(field.value);
-                    }
-                }
-
-                // TODO: don't panic
-                @panic("Unexpected device class string given");
-            }
-        };
-
-        const Resources = struct {
-            regions: []const Region,
-        };
-    };
-};
 
 const DeviceTree = struct {
     /// Functionality relating the the ARM Generic Interrupt Controller.
