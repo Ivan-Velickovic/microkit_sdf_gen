@@ -368,18 +368,18 @@ pub const SerialSystem = struct {
 
     fn rxConnectDriver(system: *SerialSystem) void {
         for (REGIONS) |region| {
-            const mr_name = std.fmt.allocPrint(system.allocator, "serial_driver_rx_{s}", .{ region }) catch @panic("OOM");
+            const mr_name = std.fmt.allocPrint(system.allocator, "serial_driver_rx_{s}", .{region}) catch @panic("OOM");
             const mr = Mr.create(system.sdf, mr_name, system.region_size, null, system.page_size);
             system.sdf.addMemoryRegion(mr);
             const perms: Map.Permissions = .{ .read = true, .write = true };
             // @ivanv: vaddr has invariant that needs to be checked
             const mux_vaddr = system.mux_rx.getMapableVaddr(mr.size);
-            const mux_setvar_vaddr = std.fmt.allocPrint(system.allocator, "rx_{s}_driver", .{ region }) catch @panic("OOM");
+            const mux_setvar_vaddr = std.fmt.allocPrint(system.allocator, "rx_{s}_driver", .{region}) catch @panic("OOM");
             const mux_map = Map.create(mr, mux_vaddr, perms, true, mux_setvar_vaddr);
             system.mux_rx.addMap(mux_map);
 
             const driver_vaddr = system.driver.getMapableVaddr(mr.size);
-            const driver_setvar_vaddr = std.fmt.allocPrint(system.allocator, "rx_{s}", .{ region }) catch @panic("OOM");
+            const driver_setvar_vaddr = std.fmt.allocPrint(system.allocator, "rx_{s}", .{region}) catch @panic("OOM");
             const driver_map = Map.create(mr, driver_vaddr, perms, true, driver_setvar_vaddr);
             system.driver.addMap(driver_map);
         }
@@ -387,18 +387,18 @@ pub const SerialSystem = struct {
 
     fn txConnectDriver(system: *SerialSystem) void {
         for (REGIONS) |region| {
-            const mr_name = std.fmt.allocPrint(system.allocator, "serial_driver_tx_{s}", .{ region }) catch @panic("OOM");
+            const mr_name = std.fmt.allocPrint(system.allocator, "serial_driver_tx_{s}", .{region}) catch @panic("OOM");
             const mr = Mr.create(system.sdf, mr_name, system.region_size, null, system.page_size);
             system.sdf.addMemoryRegion(mr);
             const perms: Map.Permissions = .{ .read = true, .write = true };
             // @ivanv: vaddr has invariant that needs to be checked
             const mux_vaddr = system.mux_tx.getMapableVaddr(mr.size);
-            const mux_setvar_vaddr = std.fmt.allocPrint(system.allocator, "tx_{s}_driver", .{ region }) catch @panic("OOM");
+            const mux_setvar_vaddr = std.fmt.allocPrint(system.allocator, "tx_{s}_driver", .{region}) catch @panic("OOM");
             const mux_map = Map.create(mr, mux_vaddr, perms, true, mux_setvar_vaddr);
             system.mux_tx.addMap(mux_map);
 
             const driver_vaddr = system.driver.getMapableVaddr(mr.size);
-            const driver_setvar_vaddr = std.fmt.allocPrint(system.allocator, "tx_{s}", .{ region }) catch @panic("OOM");
+            const driver_setvar_vaddr = std.fmt.allocPrint(system.allocator, "tx_{s}", .{region}) catch @panic("OOM");
             const driver_map = Map.create(mr, driver_vaddr, perms, true, driver_setvar_vaddr);
             system.driver.addMap(driver_map);
         }
@@ -438,34 +438,44 @@ pub const SerialSystem = struct {
         }
     }
 
-    pub fn connect(system: *SerialSystem) !void {
-        var sdf = system.sdf;
-
-        if (system.mux_rx == undefined or system.mux_tx == undefined) {
-            // TODO: support single-client case
-            @panic("cannot connect system without multiplexors");
+    pub fn connect(system: *SerialSystem) usize {
+        if (system.mux_rx == undefined) {
+            return 1;
         }
 
-        // 1. Create all the channels
-        // 1.1 Create channels between driver and multiplexors
-        try createDriver(sdf, system.driver, system.device);
-        const ch_driver_mux_tx = Channel.create(system.driver, system.mux_tx);
-        const ch_driver_mux_rx = Channel.create(system.driver, system.mux_rx);
-        sdf.addChannel(ch_driver_mux_tx);
-        sdf.addChannel(ch_driver_mux_rx);
-        // 1.2 Create channels between multiplexors and clients
-        for (system.clients.items) |client| {
-            const ch_mux_tx_client = Channel.create(system.mux_tx, client);
-            const ch_mux_rx_client = Channel.create(system.mux_rx, client);
-            sdf.addChannel(ch_mux_tx_client);
-            sdf.addChannel(ch_mux_rx_client);
-        }
-        system.rxConnectDriver();
-        system.txConnectDriver();
-        for (system.clients.items) |client| {
-            system.rxConnectClient(client);
-            system.txConnectClient(client);
-        }
+        // if (system.mux_tx == undefined) {
+        //     return 2;
+        // }
+
+        return 3;
+
+        // var sdf = system.sdf;
+
+        // if (system.mux_rx == undefined or system.mux_tx == undefined) {
+        //     // TODO: support single-client case
+        //     @panic("cannot connect system without multiplexors");
+        // }
+
+        // // 1. Create all the channels
+        // // 1.1 Create channels between driver and multiplexors
+        // try createDriver(sdf, system.driver, system.device);
+        // const ch_driver_mux_tx = Channel.create(system.driver, system.mux_tx);
+        // const ch_driver_mux_rx = Channel.create(system.driver, system.mux_rx);
+        // sdf.addChannel(ch_driver_mux_tx);
+        // sdf.addChannel(ch_driver_mux_rx);
+        // // 1.2 Create channels between multiplexors and clients
+        // for (system.clients.items) |client| {
+        //     const ch_mux_tx_client = Channel.create(system.mux_tx, client);
+        //     const ch_mux_rx_client = Channel.create(system.mux_rx, client);
+        //     sdf.addChannel(ch_mux_tx_client);
+        //     sdf.addChannel(ch_mux_rx_client);
+        // }
+        // system.rxConnectDriver();
+        // system.txConnectDriver();
+        // for (system.clients.items) |client| {
+        //     system.rxConnectClient(client);
+        //     system.txConnectClient(client);
+        // }
     }
 };
 

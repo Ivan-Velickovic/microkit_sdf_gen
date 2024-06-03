@@ -102,14 +102,14 @@ fn abstractions(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) 
     serial_system.addClient(&client2_pd);
     sdf.addProtectionDomain(&client2_pd);
 
-    serial_system.connect() catch {};
-    if (2 != 0) {
-        return 999;
-    }
+    const ret = serial_system.connect();
+    // if (2 != 0) {
+    //     return 999;
+    // }
 
     // const xml = try sdf.toXml();
     // std.debug.print("{s}", .{xml});
-    return 0;
+    return ret;
 }
 
 // Compile: zig build wasm
