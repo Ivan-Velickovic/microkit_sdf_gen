@@ -240,7 +240,7 @@ pub const SystemDescription = struct {
             _ = try writer.write("\n");
 
             // Add memory region mappings as child nodes
-            const child_separator = try allocPrint(sdf.allocator, "{s}    ", .{ separator });
+            const child_separator = try allocPrint(sdf.allocator, "{s}    ", .{separator});
             defer sdf.allocator.free(child_separator);
             for (vm.maps.items) |map| {
                 try map.toXml(sdf, writer, child_separator);
@@ -249,7 +249,7 @@ pub const SystemDescription = struct {
             const closing_tag =
                 \\{s}<virtual_machine />
             ;
-            const closing_xml = try allocPrint(sdf.allocator, closing_tag, .{ separator });
+            const closing_xml = try allocPrint(sdf.allocator, closing_tag, .{separator});
             defer sdf.allocator.free(closing_xml);
             _ = try writer.write(closing_xml);
             _ = try writer.write("\n");
@@ -364,7 +364,7 @@ pub const SystemDescription = struct {
             defer sdf.allocator.free(top);
             _ = try writer.write(top);
 
-            const child_separator = try allocPrint(sdf.allocator, "{s}    ", .{ separator });
+            const child_separator = try allocPrint(sdf.allocator, "{s}    ", .{separator});
             defer sdf.allocator.free(child_separator);
             // Add program image (if we have one)
             if (pd.program_image) |program_image| {
@@ -390,7 +390,7 @@ pub const SystemDescription = struct {
                 pd.next_avail_id += 1;
             }
 
-            const bottom = try allocPrint(sdf.allocator, "{s}</protection_domain>\n", .{ separator });
+            const bottom = try allocPrint(sdf.allocator, "{s}</protection_domain>\n", .{separator});
             defer sdf.allocator.free(bottom);
             _ = try writer.write(bottom);
         }
@@ -416,7 +416,7 @@ pub const SystemDescription = struct {
         }
 
         pub fn toXml(ch: Channel, sdf: *SystemDescription, writer: ArrayList(u8).Writer, separator: []const u8) !void {
-            const child_separator = try allocPrint(sdf.allocator, "{s}    ", .{ separator });
+            const child_separator = try allocPrint(sdf.allocator, "{s}    ", .{separator});
             defer sdf.allocator.free(child_separator);
             const channel_str =
                 \\{s}<channel>{s}{s}<end pd="{s}" id="{}" />{s}{s}<end pd="{s}" id="{}" />{s}{s}</channel>
@@ -514,7 +514,7 @@ pub const SystemDescription = struct {
         // array of bytes for consumption by langauges like C.
         _ = try writer.write("</system>\n" ++ "\x00");
 
-        return sdf.xml_data.items[0..sdf.xml_data.items.len-1:0];
+        return sdf.xml_data.items[0 .. sdf.xml_data.items.len - 1 :0];
     }
 
     /// Export the necessary #defines for channel IDs, IRQ IDs and child

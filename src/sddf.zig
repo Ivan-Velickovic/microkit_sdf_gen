@@ -67,6 +67,34 @@ pub fn compatibleDrivers(allocator: Allocator) ![]const []const u8 {
     return try array.toOwnedSlice();
 }
 
+pub fn wasmProbe(allocator: Allocator, driverConfigs: anytype, classConfigs: anytype) !void {
+    drivers = std.ArrayList(Config.Driver).init(allocator);
+    // TODO: we could init capacity with number of DeviceClassType fields
+    classes = std.ArrayList(Config.DeviceClass).init(allocator);
+
+    var i: usize = 0;
+    while (i < driverConfigs.items.len) : (i += 1) {
+        const config = driverConfigs.items[i].object;
+        const json = try std.json.parseFromSliceLeaky(Config.Driver.Json, allocator, config.get("content").?.string, .{});
+        try drivers.append(Config.Driver.fromJson(json, config.get("class").?.string));
+    }
+    // for (driverConfigs) |config| {
+    //     const json = try std.json.parseFromSliceLeaky(Config.Driver.Json, allocator, config.get("content").?.content, .{});
+    //     try drivers.append(Config.Driver.fromJson(json, config.get("class").?.name));
+    // }
+
+    i = 0;
+    while (i < classConfigs.items.len) : (i += 1) {
+        const config = classConfigs.items[i].object;
+        const json = try std.json.parseFromSliceLeaky(Config.DeviceClass.Json, allocator, config.get("content").?.string, .{});
+        try classes.append(Config.DeviceClass.fromJson(json, config.get("class").?.string));
+    }
+    // for (classConfigs) |config| {
+    //     const json = try std.json.parseFromSliceLeaky(Config.DeviceClass.Json, allocator, config.get("content").?.content, .{});
+    //     try classes.append(Config.DeviceClass.fromJson(json, config.get("class").?.name));
+    // }
+}
+
 /// As part of the initilisation, we want to find all the JSON configuration
 /// files, parse them, and built up a data structure for us to then search
 /// through whenever we want to create a driver to the system description.
@@ -438,44 +466,34 @@ pub const SerialSystem = struct {
         }
     }
 
-    pub fn connect(system: *SerialSystem) usize {
-        if (system.mux_rx == undefined) {
-            return 1;
+    pub fn connect(system: *SerialSystem) !void {
+        var sdf = system.sdf;
+
+        if (system.mux_rx == undefined or system.mux_tx == undefined) {
+            // TODO: support single-client case
+            @panic("cannot connect system without multiplexors");
         }
 
-        // if (system.mux_tx == undefined) {
-        //     return 2;
-        // }
-
-        return 3;
-
-        // var sdf = system.sdf;
-
-        // if (system.mux_rx == undefined or system.mux_tx == undefined) {
-        //     // TODO: support single-client case
-        //     @panic("cannot connect system without multiplexors");
-        // }
-
-        // // 1. Create all the channels
-        // // 1.1 Create channels between driver and multiplexors
-        // try createDriver(sdf, system.driver, system.device);
-        // const ch_driver_mux_tx = Channel.create(system.driver, system.mux_tx);
-        // const ch_driver_mux_rx = Channel.create(system.driver, system.mux_rx);
-        // sdf.addChannel(ch_driver_mux_tx);
-        // sdf.addChannel(ch_driver_mux_rx);
-        // // 1.2 Create channels between multiplexors and clients
-        // for (system.clients.items) |client| {
-        //     const ch_mux_tx_client = Channel.create(system.mux_tx, client);
-        //     const ch_mux_rx_client = Channel.create(system.mux_rx, client);
-        //     sdf.addChannel(ch_mux_tx_client);
-        //     sdf.addChannel(ch_mux_rx_client);
-        // }
-        // system.rxConnectDriver();
-        // system.txConnectDriver();
-        // for (system.clients.items) |client| {
-        //     system.rxConnectClient(client);
-        //     system.txConnectClient(client);
-        // }
+        // 1. Create all the channels
+        // 1.1 Create channels between driver and multiplexors
+        try createDriver(sdf, system.driver, system.device);
+        const ch_driver_mux_tx = Channel.create(system.driver, system.mux_tx);
+        const ch_driver_mux_rx = Channel.create(system.driver, system.mux_rx);
+        sdf.addChannel(ch_driver_mux_tx);
+        sdf.addChannel(ch_driver_mux_rx);
+        // 1.2 Create channels between multiplexors and clients
+        for (system.clients.items) |client| {
+            const ch_mux_tx_client = Channel.create(system.mux_tx, client);
+            const ch_mux_rx_client = Channel.create(system.mux_rx, client);
+            sdf.addChannel(ch_mux_tx_client);
+            sdf.addChannel(ch_mux_rx_client);
+        }
+        system.rxConnectDriver();
+        system.txConnectDriver();
+        for (system.clients.items) |client| {
+            system.rxConnectClient(client);
+            system.txConnectClient(client);
+        }
     }
 };
 
@@ -488,16 +506,16 @@ pub fn createDriver(sdf: *SystemDescription, pd: *Pd, device: *dtb.Node) !void {
 
     // TODO: It is expected for a lot of devices to have multiple compatible strings,
     // we need to deal with that here.
-    std.log.debug("Creating driver for device: '{s}'", .{device.name});
-    std.log.debug("Compatible with:", .{});
-    for (compatible) |c| {
-        std.log.debug("     '{s}'", .{c});
-    }
+    // std.log.debug("Creating driver for device: '{s}'", .{device.name});
+    // std.log.debug("Compatible with:", .{});
+    // for (compatible) |c| {
+    //     std.log.debug("     '{s}'", .{c});
+    // }
 
     // Get the driver based on the compatible string are given, assuming we can
     // find it.
     const driver = if (findDriver(compatible)) |d| d else return error.UnknownDevice;
-    std.log.debug("Found compatible driver '{s}'", .{driver.name});
+    // std.log.debug("Found compatible driver '{s}'", .{driver.name});
     // TODO: fix, this should be from the DTS
 
     const device_reg = device.prop(.Reg).?;

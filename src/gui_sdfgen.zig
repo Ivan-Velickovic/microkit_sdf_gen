@@ -102,15 +102,25 @@ fn abstractions(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) 
     serial_system.addClient(&client2_pd);
     sdf.addProtectionDomain(&client2_pd);
 
-    const ret = serial_system.connect();
+    serial_system.connect() catch {
+        return 3;
+    };
     // if (2 != 0) {
     //     return 999;
     // }
 
     // const xml = try sdf.toXml();
     // std.debug.print("{s}", .{xml});
-    return ret;
+    return 0;
 }
+
+// fn hello(pds: anytype, result_ptr: [*]u8) usize {
+//     const pd1 = pds.items[0].object;
+//     const str = pd1.get("name").?.string;
+
+//     std.mem.copyForwards(u8, result_ptr[0..str.len], str);
+//     return str.len;
+// }
 
 // Compile: zig build wasm
 // Copy to GUI repo: cp zig-out/bin/gui_sdfgen.wasm ../lionsos_vis/public
@@ -174,15 +184,35 @@ export fn jsonToXml(input_ptr: [*]const u8, input_len: usize, result_ptr: [*]u8)
         return 4;
     };
 
+    const drivers = object.get("drivers").?.array;
+    const classes = object.get("deviceClasses").?.array;
+    sddf.wasmProbe(allocator, drivers, classes) catch {
+        return 888;
+    };
+    const compatible_drivers = sddf.compatibleDrivers(allocator) catch {
+        return 888;
+    };
+    defer allocator.free(compatible_drivers);
+
     const ret = abstractions(allocator, &sdf, blob);
     if (ret != 0) {
         return ret;
     }
 
-    const xml = sdf.toXml() catch {
-        return 5;
+    const xml = sdf.toXml() catch |err| {
+        return switch (err) {
+            error.OutOfMemory => 5,
+        };
     };
+    // const ret1 = sdf.toXml();
 
-    std.mem.copyForwards(u8, result_ptr[0..xml.len], xml);
+    // std.mem.copyForwards(u8, result_ptr[0..xml.len], xml);
+
+    // const ret = hello(pds, result_ptr);
+    const pds = object.get("pds").?.array;
+    const pd1 = pds.items[0].object;
+    const str = pd1.get("name").?.string;
+    std.mem.copyForwards(u8, result_ptr[0..str.len], str);
+
     return xml.len;
 }
