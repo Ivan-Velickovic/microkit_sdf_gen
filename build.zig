@@ -100,8 +100,8 @@ pub fn build(b: *std.Build) !void {
         .name = "gui_sdfgen",
         .root_source_file = .{ .path = "src/gui_sdfgen.zig" },
         .target = wasm_target,
-        .optimize = .ReleaseSmall,
-		.strip = false,
+        .optimize = .Debug,
+        .strip = false,
     });
 
     wasm.root_module.addImport("dtb", dtb_module);
