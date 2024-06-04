@@ -1,10 +1,10 @@
 const std = @import("std");
 const mod_sdf = @import("sdf.zig");
-const mod_dtb = @import("dtb");
+const dtb = @import("dtb");
 
 pub const MicrokitBoard = struct {
     boardType: MicrokitBoardType,
-    dtb: *mod_dtb.Node,
+    blob: *dtb.Node,
 
     pub const MicrokitBoardType = enum {
         qemu_arm_virt,
@@ -30,23 +30,15 @@ pub const MicrokitBoard = struct {
         // }
     };
 
-    pub fn create(boardType: MicrokitBoardType, dtb: *mod_dtb.Node) MicrokitBoard {
-        return MicrokitBoard{ .boardType = boardType, .dtb = dtb };
+    // TODO: Don't pass in a dtb.Node here, let the system find it itself.
+    pub fn create(boardType: MicrokitBoardType, blob: *dtb.Node) MicrokitBoard {
+        return MicrokitBoard{ .boardType = boardType, .blob = blob };
     }
 
     // Get architecture for each board
     pub fn arch(b: MicrokitBoard) mod_sdf.SystemDescription.Arch {
-        return switch (b) {
+        return switch (b.boardType) {
             .qemu_arm_virt, .odroidc4 => .aarch64,
-        };
-    }
-
-    // Get the Device Tree node for the UART we want to use for
-    // each board
-    pub fn uartNode(b: MicrokitBoard) []const u8 {
-        return switch (b) {
-            .qemu_arm_virt => "pl011@9000000",
-            .odroidc4 => "serial@3000",
         };
     }
     
