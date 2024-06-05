@@ -1,5 +1,7 @@
+const std = @import("std");
 const dtb = @import("dtb");
 const mod_sdf = @import("sdf.zig");
+const Allocator = std.mem.Allocator;
 
 const SystemDescription = mod_sdf.SystemDescription;
 const Interrupt = SystemDescription.Interrupt;
@@ -40,25 +42,33 @@ pub const DeviceTree = struct {
     }
 
     // TODO: probably should move this into the external dtb module instead...
-    // Given compatible strings, return the first found dtb node that matches any compatible string.
-    pub fn findDtbNodeFromCompat(node: *dtb.Node, compatibles: []const []const u8) ?*dtb.Node {
-        const curr_compatible = node.prop(.Compatible);
-        if (curr_compatible != null) {
-            for (compatibles) |compatible| {
-                if (curr_compatible == compatible) {
-                    return node;
-                }
-            }
-            return null;
+    // Given the name of a dtb node, return the first found descendent node that matches the name.
+    pub fn findDtbNode(root: *dtb.Node, name: []const u8) ?*dtb.Node {
+        if (std.mem.eql(u8, root.name, name)) {
+            return root;
         }
-
-        for (node.children()) |child| {
-            const descendent = findDtbNodeFromCompat(child, compatibles);
-            if (descendent != null) {
-                return descendent;
+        for (root.children) |children| {
+            const target = findDtbNode(children, name);
+            if (target != null) {
+                return target;
             }
         }
-
         return null;
     }
 };
+
+pub fn parseDtb(allocator: Allocator, dtbs_path: []const u8, dtb_name: []const u8) !dtb.Node {
+    const dtbs_dir = try std.fs.cwd().access(dtbs_path, .{});
+    defer dtbs_dir.close();
+    
+    const dtb_file = dtbs_dir.openFile(dtb_name, .{}) catch |e| {
+        if (e == error.FileNotFound) {
+            std.log.info("could not find dtb file '{s}'", .{dtb_name});
+        }
+        return e;
+    };
+    defer dtb_file.close();
+    const dtb_size = (try dtb_file.stat()).size;
+    const dtb_bytes = try dtb_file.reader().readAllAlloc(allocator, dtb_size);
+    return try dtb.parse(dtb_bytes);
+}
