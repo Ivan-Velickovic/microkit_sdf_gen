@@ -4,12 +4,12 @@ const mod_sdf = @import("sdf.zig");
 const mod_vmm = @import("vmm.zig");
 const mod_microkitboard = @import("microkitboard.zig");
 const mod_sddf = @import("sddf.zig");
-const dtb = @import("dtb");
+const mod_devicetree = @import("devicetree.zig");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
 const MicrokitBoard = mod_microkitboard.MicrokitBoard;
-
+const DeviceTree = mod_devicetree.DeviceTree;
 const Sddf = mod_sddf.Sddf;
 
 const SystemDescription = mod_sdf.SystemDescription;
@@ -73,6 +73,8 @@ pub fn main() !void {
     const sddf = try Sddf.probe(allocator, sddf_path);
     defer sddf.deinit(allocator);
 
+    
+
     // Now that we have a list of compatible drivers, we need to find what actual
     // devices are available that are compatible. This will determine what IRQs
     // and memory regions are allocated for the driver. Each device will have separate
@@ -82,6 +84,6 @@ pub fn main() !void {
     // For now, and for simplicity, let's leave this as a problem to solve later. Right
     // now we will keep the device tree as the source of truth.
 
-    var sdf = try SystemDescription.create(allocator, board.arch());
-    try example.generate(allocator, &sdf, blob);
+    // var sdf = try SystemDescription.create(allocator, board.arch());
+    // try example.generate(allocator, &sdf, blob);
 }

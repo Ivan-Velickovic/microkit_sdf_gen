@@ -2,9 +2,13 @@ const std = @import("std");
 const mod_sdf = @import("sdf.zig");
 const mod_microkitboard = @import("microkitboard.zig");
 const mod_devicetree = @import("devicetree.zig");
-const dtb = @import("dtb");
 const Allocator = std.mem.Allocator;
 const allocPrint = std.fmt.allocPrint;
+
+const MicrokitBoard = mod_microkitboard.MicrokitBoard;
+const MicrokitBoardType = MicrokitBoard.MicrokitBoardType;
+
+const DeviceTree = mod_devicetree.DeviceTree;
 
 const SystemDescription = mod_sdf.SystemDescription;
 const Mr = SystemDescription.MemoryRegion;
@@ -13,11 +17,6 @@ const Pd = SystemDescription.ProtectionDomain;
 const ProgramImage = Pd.ProgramImage;
 const Interrupt = SystemDescription.Interrupt;
 const Channel = SystemDescription.Channel;
-
-const MicrokitBoard = mod_microkitboard.MicrokitBoard;
-const MicrokitBoardType = MicrokitBoard.MicrokitBoardType;
-
-const DeviceTree = mod_devicetree.DeviceTree;
 
 ///
 /// Expected sDDF repository layout:
@@ -31,6 +30,133 @@ const DeviceTree = mod_devicetree.DeviceTree;
 /// device class and aa directory for each device class inside
 /// 'drivers/'.
 ///
+
+pub const Sddf = struct {
+    drivers_config: std.ArrayList(Config.Driver),
+    components_config: std.ArrayList(Config.Component),
+
+    // As part of the initilisation, we want to find all the JSON configuration
+    // files, parse them, and built up a data structure for us to then search
+    // through whenever we want to create a driver to the system description.
+    pub fn probe(allocator: Allocator, sddf_path: []const u8) !Sddf {
+        const sddf = Sddf{
+            .drivers_config = std.ArrayList(Config.Driver).init(allocator),
+            .components_config = std.ArrayList(Config.Component).init(allocator),
+        };
+
+        std.log.info("starting sDDF probe", .{});
+        std.log.info("opening sDDF root dir '{s}'", .{sddf_path});
+        const sddf_dir = try std.fs.cwd().openDir(sddf_path, .{});
+        defer sddf_dir.close();
+
+        const device_classes = comptime std.meta.fields(Config.DeviceClass);
+        inline for (device_classes) |device_class| {
+            // Probe for drivers
+            std.log.info("searching through: 'drivers/{s}'", .{device_class.name});
+            const drivers_dir = sddf_dir.openDir("drivers/" ++ device_class.name, .{ .iterate = true }) catch |e| {
+                switch (e) {
+                    error.FileNotFound => {
+                        std.log.info("could not find drivers directory at 'drivers/{s}', skipping...", .{device_class.name});
+                        continue;
+                    },
+                    else => return e,
+                }
+            };
+            defer drivers_dir.close();
+
+            const iter = drivers_dir.iterate();
+            while (try iter.next()) |entry| {
+                if (entry.kind != .directory) {
+                    continue;
+                }
+                
+                std.log.info("searching through: 'drivers/{s}/{s}'", .{device_class.name, entry.name});
+                const driver_dir = try drivers_dir.openDir(entry.name, .{});
+                defer driver_dir.close();
+
+                const driver_config_file = driver_dir.openFile("config.json", .{}) catch |e| {
+                    switch (e) {
+                        error.FileNotFound => {
+                            std.log.info("could not find config file at '{s}', skipping...", .{entry.name});
+                            continue;
+                        },
+                        else => return e,
+                    }
+                };
+                defer driver_config_file.close();
+                const driver_config_size = (try driver_config_file.stat()).size;
+                const driver_config_bytes = try driver_config_file.reader().readAllAlloc(allocator, driver_config_size);
+                // TODO; free config? we'd have to dupe the json data when populating our data structures
+                std.debug.assert(driver_config_bytes.len == driver_config_size);
+                const driver_json = try std.json.parseFromSliceLeaky(Config.Driver.Json, allocator, driver_config_bytes, .{});
+                // TODO: we have no information if the parsing fails. We need to do some error output if
+                // it the input is malformed.
+                // TODO: should probably free the memory at some point
+                // We are using an ArenaAllocator so calling parseFromSliceLeaky instead of parseFromSlice
+                // is recommended.
+                try sddf.drivers_config.append(Config.Driver.fromJson(driver_json, device_class.name));
+            }
+
+            // Probe for components
+            std.log.info("searching through: {s}", .{device_class.name});
+            const components_dir = try sddf_dir.openDir(device_class.name, .{});
+            defer components_dir.close();
+
+            const component_config_file = components_dir.openFile("config.json", .{}) catch |e| {
+                switch (e) {
+                    error.FileNotFound => {
+                        std.log.info("could not find config file at '{s}', skipping...", .{device_class.name});
+                        continue;
+                    },
+                    else => return e,
+                }
+            };
+            defer component_config_file.close();
+            const component_config_size = (try component_config_file.stat()).size;
+            const component_config_bytes = try component_config_file.reader().readAllAlloc(allocator, component_config_size);
+            std.debug.assert(component_config_bytes.len == component_config_size);
+            const component_json = try std.json.parseFromSliceLeaky(Config.Component.Json, allocator, component_config_bytes, .{});
+            try sddf.components_config.append(Config.Component.fromJson(component_json, device_class.name));
+        }
+
+        return sddf;
+    }
+
+    // Assumes probe() has been called
+    fn findDriverConfig(sddf: *Sddf, compatibles: []const []const u8) ?*Config.Driver {
+        for (sddf.drivers_config.items) |driver| {
+            // This is yet another point of weirdness with device trees. It is often
+            // the case that there are multiple compatible strings for a device and
+            // accompying driver. So we get the user to provide a list of compatible
+            // strings, and we check for a match with any of the compatible strings
+            // of a driver.
+            for (compatibles) |compatible| {
+                for (driver.compatible) |driver_compatible| {
+                    if (std.mem.eql(u8, driver_compatible, compatible)) {
+                        // We have found a compatible driver
+                        return driver;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    // Assumes probe() has been called
+    fn findComponentConfig(sddf: *Sddf, name: []const u8) ?*Config.Component {
+        for (sddf.components_config.items) |component| {
+            if (std.mem.eql(u8, component.name, name)) {
+                return component;
+            }
+        }
+        return null;
+    }
+
+    pub fn deinit(sddf: *Sddf, allocator: Allocator) void {
+        allocator.free(sddf.drivers_config);
+        allocator.free(sddf.components_config);
+    }
+};
 
 // TODO: potentially TOO generic, may need to split into serial_drivers, network_drivers, etc.
 // instead of combining all into one.
@@ -130,135 +256,6 @@ pub const Config = struct {
     };
 };
 
-pub const Sddf = struct {
-    allocator: Allocator,
-    drivers_config: std.ArrayList(Config.Driver),
-    components_config: std.ArrayList(Config.Component),
-
-    // As part of the initilisation, we want to find all the JSON configuration
-    // files, parse them, and built up a data structure for us to then search
-    // through whenever we want to create a driver to the system description.
-    pub fn probe(allocator: Allocator, sddf_path: []const u8) !Sddf {
-        const sddf = Sddf{
-            .allocator = allocator,
-            .drivers_config = std.ArrayList(Config.Driver).init(allocator),
-            .components_config = std.ArrayList(Config.Component).init(allocator),
-        };
-
-        std.log.info("starting sDDF probe", .{});
-        std.log.info("opening sDDF root dir '{s}'", .{sddf_path});
-        const sddf_dir = try std.fs.cwd().openDir(sddf_path, .{});
-        defer sddf_dir.close();
-
-        const device_classes = comptime std.meta.fields(Config.DeviceClass);
-        inline for (device_classes) |device_class| {
-            // Probe for drivers
-            std.log.info("searching through: 'drivers/{s}'", .{device_class.name});
-            const drivers_dir = sddf_dir.openDir("drivers/" ++ device_class.name, .{ .iterate = true }) catch |e| {
-                switch (e) {
-                    error.FileNotFound => {
-                        std.log.info("could not find drivers directory at 'drivers/{s}', skipping...", .{device_class.name});
-                        continue;
-                    },
-                    else => return e,
-                }
-            };
-            defer drivers_dir.close();
-
-            const iter = drivers_dir.iterate();
-            while (try iter.next()) |entry| {
-                if (entry.kind != .directory) {
-                    continue;
-                }
-                
-                std.log.info("searching through: 'drivers/{s}/{s}'", .{device_class.name, entry.name});
-                const driver_dir = try drivers_dir.openDir(entry.name, .{});
-                defer driver_dir.close();
-
-                const driver_config_file = driver_dir.openFile("config.json", .{}) catch |e| {
-                    switch (e) {
-                        error.FileNotFound => {
-                            std.log.info("could not find config file at '{s}', skipping...", .{entry.name});
-                            continue;
-                        },
-                        else => return e,
-                    }
-                };
-                defer driver_config_file.close();
-                const driver_config_size = (try driver_config_file.stat()).size;
-                const driver_config = try driver_config_file.reader().readAllAlloc(allocator, driver_config_size);
-                // TODO; free config? we'd have to dupe the json data when populating our data structures
-                std.debug.assert(driver_config.len == driver_config_size);
-                const driver_json = try std.json.parseFromSliceLeaky(Config.Driver.Json, allocator, driver_config, .{});
-                // TODO: we have no information if the parsing fails. We need to do some error output if
-                // it the input is malformed.
-                // TODO: should probably free the memory at some point
-                // We are using an ArenaAllocator so calling parseFromSliceLeaky instead of parseFromSlice
-                // is recommended.
-                try sddf.drivers_config.append(Config.Driver.fromJson(driver_json, device_class.name));
-            }
-
-            // Probe for components
-            std.log.info("searching through: {s}", .{device_class.name});
-            const components_dir = try sddf_dir.openDir(device_class.name, .{});
-            defer components_dir.close();
-
-            const component_config_file = components_dir.openFile("config.json", .{}) catch |e| {
-                switch (e) {
-                    error.FileNotFound => {
-                        std.log.info("could not find config file at '{s}', skipping...", .{device_class.name});
-                        continue;
-                    },
-                    else => return e,
-                }
-            };
-            defer component_config_file.close();
-            const component_config_size = (try component_config_file.stat()).size;
-            const component_config = try component_config_file.reader().readAllAlloc(allocator, component_config_size);
-            std.debug.assert(component_config.len == component_config_size);
-            const component_json = try std.json.parseFromSliceLeaky(Config.Component.Json, allocator, component_config, .{});
-            try sddf.components_config.append(Config.Component.fromJson(component_json, device_class.name));
-        }
-
-        return sddf;
-    }
-
-    // Assumes probe() has been called
-    fn findDriverConfig(sddf: *Sddf, compatibles: []const []const u8) ?*Config.Driver {
-        for (sddf.drivers_config.items) |driver| {
-            // This is yet another point of weirdness with device trees. It is often
-            // the case that there are multiple compatible strings for a device and
-            // accompying driver. So we get the user to provide a list of compatible
-            // strings, and we check for a match with any of the compatible strings
-            // of a driver.
-            for (compatibles) |compatible| {
-                for (driver.compatible) |driver_compatible| {
-                    if (std.mem.eql(u8, driver_compatible, compatible)) {
-                        // We have found a compatible driver
-                        return driver;
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    // Assumes probe() has been called
-    fn findComponentConfig(sddf: *Sddf, name: []const u8) ?*Config.Component {
-        for (sddf.components_config.items) |component| {
-            if (std.mem.eql(u8, component.name, name)) {
-                return component;
-            }
-        }
-        return null;
-    }
-
-    pub fn deinit(sddf: *Sddf) void {
-        sddf.allocator.free(sddf.drivers_config);
-        sddf.allocator.free(sddf.components_config);
-    }
-};
-
 // Usage of this Serial System:
 // 1. Create a Serial System via create(), this will use the default sDDF objects and configurations.
 // 2. (Optional) set sDDF objects and configurations explicitly, do so via setDevice(), setVirtRx(), setVirtTx().
@@ -272,7 +269,7 @@ pub const SerialSystem = struct {
     sddf: *Sddf,
     virt_rx_config: Config.Component,
     virt_tx_config: Config.Component,
-    device: *dtb.Node,
+    device: DeviceTree.Node,
     device_config: Config.Driver,
     virt_rx: *Pd,
     virt_tx: *Pd,
@@ -309,13 +306,13 @@ pub const SerialSystem = struct {
 
     // TODO: Investigate whether its worth chucking all these default strings into its own JSON file.
     // TODO: Call setDevice() and setVirtRx() and setVirtTx() instead of reimplementing the logic here.
-    // TODO: Allow each mapping info e.g. region_size and page_size, to be customisable by user
+    // TODO: Allow each mapping info e.g. region_size and page_size, to be configurable by user.
     // Use board defaults to initialise the serial system.
     pub fn setDefault(system: *SerialSystem) void {
         // Init default device
         system.device = switch (system.board.board_type) {
-            MicrokitBoardType.qemu_arm_virt => DeviceTree.findDtbNode(system.board.dtb_root, "pl011@9000000"),
-            MicrokitBoardType.odroidc4 => DeviceTree.findDtbNode(system.board.dtb_root, "serial@3000"),
+            MicrokitBoardType.qemu_arm_virt => system.board.devicetree.findNode("pl011@9000000"),
+            MicrokitBoardType.odroidc4 => system.board.devicetree.findNode("serial@3000"),
             else => @panic("Board not supported")
         };
         system.driver_config = system.sddf.findDriverConfig(system.device.prop(.Compatible)) orelse @panic("Could not find default driver config for device");
@@ -340,7 +337,7 @@ pub const SerialSystem = struct {
     pub fn setDevice(system: *SerialSystem, name: []const u8) error.SddfConfigNotFound!void {
         errdefer system.device = undefined;
         errdefer system.driver_config = undefined;
-        system.device = DeviceTree.findDtbNode(system.board.dtb_root, name);
+        system.device = system.board.devicetree.findNode(name);
         system.driver_config = system.sddf.findDriverConfig(system.device.prop(.Compatible));
         if (system.driver_config == null) {
             return error.SddfConfigNotFound;

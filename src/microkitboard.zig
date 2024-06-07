@@ -1,11 +1,13 @@
 const std = @import("std");
 const mod_sdf = @import("sdf.zig");
-const dtb = @import("dtb");
+const mod_devicetree = @import("devicetree.zig");
 const Allocator = std.mem.Allocator;
+
+const DeviceTree = mod_devicetree.DeviceTree;
 
 pub const MicrokitBoard = struct {
     board_type: MicrokitBoardType,
-    dtb_root: *dtb.Node,
+    devicetree: DeviceTree,
 
     pub const MicrokitBoardType = enum {
         qemu_arm_virt,
@@ -31,23 +33,14 @@ pub const MicrokitBoard = struct {
         // }
     };
 
-    // TODO: Don't pass in a dtb.Node here, let the system find it itself.
-    pub fn create(board_type: MicrokitBoardType, dtb_root: *dtb.Node) MicrokitBoard {
-        return MicrokitBoard{ .board_type = board_type, .dtb_root = dtb_root };
+    pub fn create(board_type: MicrokitBoardType, devicetree: DeviceTree) MicrokitBoard {
+        return MicrokitBoard{ .board_type = board_type, .devicetree = devicetree };
     }
 
     // Get architecture for each board
     pub fn arch(b: MicrokitBoard) mod_sdf.SystemDescription.Arch {
         return switch (b.board_type) {
             .qemu_arm_virt, .odroidc4 => .aarch64,
-        };
-    }
-    
-    // Get the driver name prefix for each board
-    pub fn driverPrefix(b: MicrokitBoard) []const u8 {
-        return switch (b.board_type) {
-            .qemu_arm_virt => "arm",
-            .odroidc4 => "meson",
         };
     }
 };
