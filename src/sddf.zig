@@ -46,14 +46,25 @@ pub const Sddf = struct {
 
         std.log.info("starting sDDF probe", .{});
         std.log.info("opening sDDF root dir '{s}'", .{sddf_path});
-        const sddf_dir = try std.fs.cwd().openDir(sddf_path, .{});
+        // Check that path to sDDF exists
+        var sddf_dir = std.fs.cwd().openDir(sddf_path, .{}) catch |e| {
+            switch (e) {
+                error.FileNotFound => {
+                    std.log.info("Path to sDDF '{s}' does not exist\n", .{sddf_path});
+                },
+                else => {
+                    std.log.info("Could not access sDDF directory '{s}' due to error: {}\n", .{ sddf_path, e });
+                },
+            }
+            return e;
+        };
         defer sddf_dir.close();
 
         const device_classes = comptime std.meta.fields(Config.DeviceClass);
         inline for (device_classes) |device_class| {
             // Probe for drivers
             std.log.info("searching through: 'drivers/{s}'", .{device_class.name});
-            const drivers_dir = sddf_dir.openDir("drivers/" ++ device_class.name, .{ .iterate = true }) catch |e| {
+            var drivers_dir = sddf_dir.openDir("drivers/" ++ device_class.name, .{ .iterate = true }) catch |e| {
                 switch (e) {
                     error.FileNotFound => {
                         std.log.info("could not find drivers directory at 'drivers/{s}', skipping...", .{device_class.name});
@@ -206,7 +217,7 @@ pub const Config = struct {
     /// to store that is not specified in the JSON configuration.
     /// For example, the device class that the driver belongs to.
     pub const Driver = struct {
-        class: DeviceClass.Class,
+        class: DeviceClass,
         name: []const u8,
         compatibles: []const []const u8,
         maps: []const Config.Map,
@@ -264,13 +275,12 @@ pub const Config = struct {
 // 4. Add clients to the system via addSdfClient()
 // 5. Add the system to the system description via addToSystemDescription()
 pub const SerialSystem = struct {
-    allocator: Allocator,
     board: *MicrokitBoard,
     sddf: *Sddf,
     virt_rx_config: Config.Component,
     virt_tx_config: Config.Component,
+    driver_config: Config.Driver,
     device: DeviceTree.Node,
-    device_config: Config.Driver,
     virt_rx: *Pd,
     virt_tx: *Pd,
     driver: *Pd,
@@ -280,7 +290,6 @@ pub const SerialSystem = struct {
 
     pub fn create(allocator: Allocator, board: *MicrokitBoard, sddf: *Sddf) SerialSystem {
         const system = SerialSystem{
-            .allocator = allocator,
             .board = board,
             .sddf = sddf,
             .virt_rx_config = undefined,
@@ -300,8 +309,8 @@ pub const SerialSystem = struct {
         return system;
     }
     
-    pub fn deinit(system: *SerialSystem) void {
-        system.allocator.free(system.clients);
+    pub fn deinit(system: *SerialSystem, allocator: Allocator) void {
+        allocator.free(system.clients);
     }
 
     // TODO: Investigate whether its worth chucking all these default strings into its own JSON file.

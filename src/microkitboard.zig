@@ -33,12 +33,17 @@ pub const MicrokitBoard = struct {
         // }
     };
 
-    pub fn create(board_type: MicrokitBoardType, devicetree: DeviceTree) MicrokitBoard {
+    pub fn create(allocator: Allocator, board_type: MicrokitBoardType, dtbs_path: []const u8) !MicrokitBoard {
+        const devicetree = try mod_devicetree.parseDtb(allocator, dtbs_path, @tagName(board_type));
         return MicrokitBoard{ .board_type = board_type, .devicetree = devicetree };
     }
 
+    pub fn deinit(b: *MicrokitBoard, allocator: Allocator) void {
+        b.devicetree.deinit(allocator);
+    }
+
     // Get architecture for each board
-    pub fn arch(b: MicrokitBoard) mod_sdf.SystemDescription.Arch {
+    pub fn arch(b: *MicrokitBoard) mod_sdf.SystemDescription.Arch {
         return switch (b.board_type) {
             .qemu_arm_virt, .odroidc4 => .aarch64,
         };

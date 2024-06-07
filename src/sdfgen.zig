@@ -23,7 +23,7 @@ const Channel = SystemDescription.Channel;
 
 const VirtualMachineSystem = mod_vmm.VirtualMachineSystem;
 
-var xml_out_path: []const u8 = "example.system";
+// var xml_out_path: []const u8 = "example.system";
 var sddf_path: []const u8 = "sddf";
 var dtbs_path: []const u8 = "dtbs";
 
@@ -40,50 +40,21 @@ pub fn main() !void {
     // defer std.process.argsFree(allocator, args);
     // try parseArgs(args, allocator);
 
-    // Check that path to sDDF exists
-    std.fs.cwd().access(sddf_path, .{}) catch |err| {
-        switch (err) {
-            error.FileNotFound => {
-                std.debug.print("Path to sDDF '{s}' does not exist\n", .{sddf_path});
-                std.process.exit(1);
-            },
-            else => {
-                std.debug.print("Could not access sDDF directory '{s}' due to error: {}\n", .{ sddf_path, err });
-                std.process.exit(1);
-            },
-        }
-    };
-
-    // Check that path to DTB exists
-    std.fs.cwd().access(dtbs_path, .{}) catch |err| {
-        switch (err) {
-            error.FileNotFound => {
-                std.debug.print("Path to board DTB '{s}' does not exist\n", .{dtbs_path});
-                std.process.exit(1);
-            },
-            else => {
-                std.debug.print("Could not access DTB directory '{s}' due to error: {}\n", .{ dtbs_path, err });
-                std.process.exit(1);
-            },
-        }
-    };
-
-    // Before doing any kind of XML generation we should probe sDDF for
-    // configuration files etc
+    // Probe sDDF for configuration files
     const sddf = try Sddf.probe(allocator, sddf_path);
-    defer sddf.deinit(allocator);
+    defer sddf.deinit(allocator);  
 
-    
+    // Probe dtb directory for the board we want
+    const microkitboard = try MicrokitBoard.create(allocator, MicrokitBoard.MicrokitBoardType.qemu_arm_virt, dtbs_path);
+    defer microkitboard.deinit(allocator);
 
-    // Now that we have a list of compatible drivers, we need to find what actual
-    // devices are available that are compatible. This will determine what IRQs
-    // and memory regions are allocated for the driver. Each device will have separate
-    // memory regions and interrupts needed.
+    // The list of compatible drivers will determine what IRQs
+    // and memory regions are allocated for the driver. Each device 
+    // will have separate memory regions and interrupts needed.
     // My only worry here is that a driver does not necessarily *need* all the memory
     // that a device tree will specify. I think the same can be said of interrupts.
     // For now, and for simplicity, let's leave this as a problem to solve later. Right
-    // now we will keep the device tree as the source of truth.
+    // now we will keep the device tree as the source of truth.  
 
-    // var sdf = try SystemDescription.create(allocator, board.arch());
-    // try example.generate(allocator, &sdf, blob);
+
 }

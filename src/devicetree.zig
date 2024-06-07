@@ -20,7 +20,7 @@ pub const DeviceTree = struct {
             Interrupts: [][]u32,
         };
 
-        pub fn prop(node: Node, prop_tag: std.meta.Tag(Prop)) ?std.meta.TagPayload(Prop, prop_tag) {
+        pub fn prop(node: *Node, prop_tag: std.meta.Tag(Prop)) ?std.meta.TagPayload(Prop, prop_tag) {
             return switch (prop_tag) {
                 .Compatible => return node.internal_node.prop(.Compatible),
                 .Reg => return node.internal_node.prop(.Reg),
@@ -30,12 +30,25 @@ pub const DeviceTree = struct {
     };
 
     pub fn parseDtb(allocator: Allocator, dtbs_path: []const u8, dtb_name: []const u8) !DeviceTree {
-        const dtbs_dir = try std.fs.cwd().access(dtbs_path, .{});
-        defer dtbs_dir.close();
+        // Check that path to DTB exists
+        std.log.info("starting DTB parse", .{});
+        std.log.info("opening DTB root dir '{s}'", .{dtbs_path});
+        const dtbs_dir = std.fs.cwd().openDir(dtbs_path, .{}) catch |e| {
+            switch (e) {
+                error.FileNotFound => {
+                    std.log.info("Path to DTB directory '{s}' does not exist\n", .{dtbs_path});
+                },
+                else => {
+                    std.log.info("Could not access DTB directory '{s}' due to error: {}\n", .{ dtbs_path, e });
+                },
+            }
+            return e;
+        };
         
+        std.log.info("searching for: '{s}'", .{dtb_name});
         const dtb_file = dtbs_dir.openFile(dtb_name, .{}) catch |e| {
             if (e == error.FileNotFound) {
-                std.log.info("could not find dtb file '{s}'", .{dtb_name});
+                std.log.info("could not find DTB file '{s}'", .{dtb_name});
             }
             return e;
         };
@@ -43,7 +56,7 @@ pub const DeviceTree = struct {
         const dtb_size = (try dtb_file.stat()).size;
         const dtb_bytes = try dtb_file.reader().readAllAlloc(allocator, dtb_size);
         const dtb = mod_dtb.parse(dtb_bytes) catch |e| {
-            std.log.info("could not parse dtb file '{s}'", .{dtb_name});
+            std.log.info("could not parse DTB file '{s}'", .{dtb_name});
             return e;
         };
         return DeviceTree{ .root_node = Node{ .internal_node = dtb } };
@@ -51,16 +64,16 @@ pub const DeviceTree = struct {
 
     // TODO: maybe should move this into the external dtb module instead?
     // Given the name of a dtb node, return the first found descendent node that matches the name.
-    pub fn findNode(devicetree: DeviceTree, name: []const u8) ?Node {
-        return recursiveFindNode(devicetree.root_node, name);
+    pub fn findNode(devicetree: *DeviceTree, name: []const u8) ?Node {
+        return Node{ .internal_node = recursiveFindNode(devicetree.root_node.internal_node, name)};
     }
 
-    fn recursiveFindNode(node: Node, name: []const u8) ?Node {
-        if (std.mem.eql(u8, node.internal_node.name, name)) {
-            return node;
+    fn recursiveFindNode(internal_node: mod_dtb.Node, name: []const u8) ?mod_dtb.Node {
+        if (std.mem.eql(u8, internal_node.name, name)) {
+            return internal_node;
         }
-        for (node.internal_node.children) |children| {
-            const target = recursiveFindNode(Node{.internal_node = children}, name);
+        for (internal_node.children) |children| {
+            const target = recursiveFindNode(children, name);
             if (target != null) {
                 return target;
             }
