@@ -67,6 +67,34 @@ pub fn compatibleDrivers(allocator: Allocator) ![]const []const u8 {
     return try array.toOwnedSlice();
 }
 
+pub fn wasmProbe(allocator: Allocator, driverConfigs: anytype, classConfigs: anytype) !void {
+    drivers = std.ArrayList(Config.Driver).init(allocator);
+    // TODO: we could init capacity with number of DeviceClassType fields
+    classes = std.ArrayList(Config.DeviceClass).init(allocator);
+
+    var i: usize = 0;
+    while (i < driverConfigs.items.len) : (i += 1) {
+        const config = driverConfigs.items[i].object;
+        const json = try std.json.parseFromSliceLeaky(Config.Driver.Json, allocator, config.get("content").?.string, .{});
+        try drivers.append(Config.Driver.fromJson(json, config.get("class").?.string));
+    }
+    // for (driverConfigs) |config| {
+    //     const json = try std.json.parseFromSliceLeaky(Config.Driver.Json, allocator, config.get("content").?.content, .{});
+    //     try drivers.append(Config.Driver.fromJson(json, config.get("class").?.name));
+    // }
+
+    i = 0;
+    while (i < classConfigs.items.len) : (i += 1) {
+        const config = classConfigs.items[i].object;
+        const json = try std.json.parseFromSliceLeaky(Config.DeviceClass.Json, allocator, config.get("content").?.string, .{});
+        try classes.append(Config.DeviceClass.fromJson(json, config.get("class").?.string));
+    }
+    // for (classConfigs) |config| {
+    //     const json = try std.json.parseFromSliceLeaky(Config.DeviceClass.Json, allocator, config.get("content").?.content, .{});
+    //     try classes.append(Config.DeviceClass.fromJson(json, config.get("class").?.name));
+    // }
+}
+
 /// As part of the initilisation, we want to find all the JSON configuration
 /// files, parse them, and built up a data structure for us to then search
 /// through whenever we want to create a driver to the system description.
@@ -368,18 +396,18 @@ pub const SerialSystem = struct {
 
     fn rxConnectDriver(system: *SerialSystem) void {
         for (REGIONS) |region| {
-            const mr_name = std.fmt.allocPrint(system.allocator, "serial_driver_rx_{s}", .{ region }) catch @panic("OOM");
+            const mr_name = std.fmt.allocPrint(system.allocator, "serial_driver_rx_{s}", .{region}) catch @panic("OOM");
             const mr = Mr.create(system.sdf, mr_name, system.region_size, null, system.page_size);
             system.sdf.addMemoryRegion(mr);
             const perms: Map.Permissions = .{ .read = true, .write = true };
             // @ivanv: vaddr has invariant that needs to be checked
             const mux_vaddr = system.mux_rx.getMapableVaddr(mr.size);
-            const mux_setvar_vaddr = std.fmt.allocPrint(system.allocator, "rx_{s}_driver", .{ region }) catch @panic("OOM");
+            const mux_setvar_vaddr = std.fmt.allocPrint(system.allocator, "rx_{s}_driver", .{region}) catch @panic("OOM");
             const mux_map = Map.create(mr, mux_vaddr, perms, true, mux_setvar_vaddr);
             system.mux_rx.addMap(mux_map);
 
             const driver_vaddr = system.driver.getMapableVaddr(mr.size);
-            const driver_setvar_vaddr = std.fmt.allocPrint(system.allocator, "rx_{s}", .{ region }) catch @panic("OOM");
+            const driver_setvar_vaddr = std.fmt.allocPrint(system.allocator, "rx_{s}", .{region}) catch @panic("OOM");
             const driver_map = Map.create(mr, driver_vaddr, perms, true, driver_setvar_vaddr);
             system.driver.addMap(driver_map);
         }
@@ -387,18 +415,18 @@ pub const SerialSystem = struct {
 
     fn txConnectDriver(system: *SerialSystem) void {
         for (REGIONS) |region| {
-            const mr_name = std.fmt.allocPrint(system.allocator, "serial_driver_tx_{s}", .{ region }) catch @panic("OOM");
+            const mr_name = std.fmt.allocPrint(system.allocator, "serial_driver_tx_{s}", .{region}) catch @panic("OOM");
             const mr = Mr.create(system.sdf, mr_name, system.region_size, null, system.page_size);
             system.sdf.addMemoryRegion(mr);
             const perms: Map.Permissions = .{ .read = true, .write = true };
             // @ivanv: vaddr has invariant that needs to be checked
             const mux_vaddr = system.mux_tx.getMapableVaddr(mr.size);
-            const mux_setvar_vaddr = std.fmt.allocPrint(system.allocator, "tx_{s}_driver", .{ region }) catch @panic("OOM");
+            const mux_setvar_vaddr = std.fmt.allocPrint(system.allocator, "tx_{s}_driver", .{region}) catch @panic("OOM");
             const mux_map = Map.create(mr, mux_vaddr, perms, true, mux_setvar_vaddr);
             system.mux_tx.addMap(mux_map);
 
             const driver_vaddr = system.driver.getMapableVaddr(mr.size);
-            const driver_setvar_vaddr = std.fmt.allocPrint(system.allocator, "tx_{s}", .{ region }) catch @panic("OOM");
+            const driver_setvar_vaddr = std.fmt.allocPrint(system.allocator, "tx_{s}", .{region}) catch @panic("OOM");
             const driver_map = Map.create(mr, driver_vaddr, perms, true, driver_setvar_vaddr);
             system.driver.addMap(driver_map);
         }
@@ -478,16 +506,16 @@ pub fn createDriver(sdf: *SystemDescription, pd: *Pd, device: *dtb.Node) !void {
 
     // TODO: It is expected for a lot of devices to have multiple compatible strings,
     // we need to deal with that here.
-    std.log.debug("Creating driver for device: '{s}'", .{device.name});
-    std.log.debug("Compatible with:", .{});
-    for (compatible) |c| {
-        std.log.debug("     '{s}'", .{c});
-    }
+    // std.log.debug("Creating driver for device: '{s}'", .{device.name});
+    // std.log.debug("Compatible with:", .{});
+    // for (compatible) |c| {
+    //     std.log.debug("     '{s}'", .{c});
+    // }
 
     // Get the driver based on the compatible string are given, assuming we can
     // find it.
     const driver = if (findDriver(compatible)) |d| d else return error.UnknownDevice;
-    std.log.debug("Found compatible driver '{s}'", .{driver.name});
+    // std.log.debug("Found compatible driver '{s}'", .{driver.name});
     // TODO: fix, this should be from the DTS
 
     const device_reg = device.prop(.Reg).?;
