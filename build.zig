@@ -104,7 +104,6 @@ pub fn build(b: *std.Build) !void {
     });
 
     wasm.root_module.addImport("dtb", dtb_module);
-    // wasm.linkLibrary(dtbzig_dep.artifact("dtb"));
     wasm.rdynamic = true;
     wasm.entry = .disabled;
 

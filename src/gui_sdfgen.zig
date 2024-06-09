@@ -74,7 +74,7 @@ fn abstractions(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) 
         // std.log.err("Could not find UART node '{s}'", .{board.uartNode()});
         // std.process.exit(1);
         // return 9999;
-        return "error";
+        return "Could not find UART node";
     }
 
     var serial_system = sddf.SerialSystem.init(allocator, sdf, 0x200000);
@@ -108,17 +108,13 @@ fn abstractions(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) 
     };
 
     const xml = sdf.toXml();
-    // std.debug.print("{s}", .{xml});
     return xml;
 }
 
-// fn hello(pds: anytype, result_ptr: [*]u8) usize {
-//     const pd1 = pds.items[0].object;
-//     const str = pd1.get("name").?.string;
-
-//     std.mem.copyForwards(u8, result_ptr[0..str.len], str);
-//     return str.len;
-// }
+fn printMsg(result_ptr: [*]u8, msg: []const u8) usize {
+    std.mem.copyForwards(u8, result_ptr[0..msg.len], msg);
+    return msg.len;
+}
 
 // Compile: zig build wasm
 // Copy to GUI repo: cp zig-out/bin/gui_sdfgen.wasm ../lionsos_vis/public
@@ -138,7 +134,7 @@ export fn jsonToXml(input_ptr: [*]const u8, input_len: usize, result_ptr: [*]u8)
     // Check that path to DTB exists
     const board_str = object.get("board").?.string;
     board = MicrokitBoard.fromStr(board_str) catch {
-        return 2;
+        return printMsg(result_ptr, "Failed to read board");
     };
 
     const blob_bytes = object.get("dtb").?.array;
@@ -146,13 +142,13 @@ export fn jsonToXml(input_ptr: [*]const u8, input_len: usize, result_ptr: [*]u8)
     // We take the 64-bit integer array of the DTB from JS and convert it to an
     // array of bytes.
     var dtb_bytes = std.ArrayList(u8).initCapacity(allocator, blob_bytes.items.len + 1) catch {
-        return 200;
+        return printMsg(result_ptr, "Failed to allocate memory for DTB bytes");
     };
     defer dtb_bytes.deinit();
     var i: usize = 0;
     while (i < blob_bytes.items.len) : (i += 1) {
         dtb_bytes.append(@intCast(blob_bytes.items[i].integer)) catch {
-            return 201;
+            return printMsg(result_ptr, "Failed to read DTB bytes");
         };
     }
 
@@ -161,57 +157,29 @@ export fn jsonToXml(input_ptr: [*]const u8, input_len: usize, result_ptr: [*]u8)
         return 202;
     };
 
-    var blob = dtb.parse(allocator, dtb_bytes.items) catch |err| {
-        return switch (err) {
-            error.BadValue => 10,
-            error.UnsupportedCells => 11,
-            error.MissingCells => 12,
-            error.OutOfMemory => 13,
-            error.Truncated => 14,
-            error.BadMagic => 15,
-            error.UnsupportedVersion => 16,
-            error.BadStructure => 17,
-            error.EOF => 18,
-            error.Internal => 19,
-        };
+    var blob = dtb.parse(allocator, dtb_bytes.items) catch {
+        return printMsg(result_ptr, "DTB parsing error");
     };
     // TODO: the allocator should already be known by the DTB...
     defer blob.deinit(allocator);
 
     var sdf = SystemDescription.create(allocator, board.arch()) catch {
-        return 4;
+        return printMsg(result_ptr, "Faild to create a system description");
     };
 
     const drivers = object.get("drivers").?.array;
     const classes = object.get("deviceClasses").?.array;
     sddf.wasmProbe(allocator, drivers, classes) catch {
-        return 888;
+        return printMsg(result_ptr, "Faild to probe sDDF");
     };
     const compatible_drivers = sddf.compatibleDrivers(allocator) catch {
-        return 888;
+        return printMsg(result_ptr, "Faild to find compatible drivers");
     };
     defer allocator.free(compatible_drivers);
 
     const xml = abstractions(allocator, &sdf, blob) catch {
-        return 889;
+        return printMsg(result_ptr, "Failed to create sample system: abstractions");
     };
-    // if (ret != 0) {
-    //     return ret;
-    // }
 
-    // const xml = sdf.toXml() catch |err| {
-    //     return switch (err) {
-    //         error.OutOfMemory => 5,
-    //     };
-    // };
-    std.mem.copyForwards(u8, result_ptr[0..xml.len], xml);
-    return xml.len;
-
-    // const ret1 = sdf.toXml();
-    // const pds = object.get("pds").?.array;
-    // const pd1 = pds.items[0].object;
-    // const str = pd1.get("name").?.string;
-    // std.mem.copyForwards(u8, result_ptr[0..str.len], str);
-
-    // return ret1;
+    return printMsg(result_ptr, xml);
 }
