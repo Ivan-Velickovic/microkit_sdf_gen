@@ -2,6 +2,7 @@ const std = @import("std");
 const mod_dtb = @import("dtb");
 const mod_sdf = @import("sdf.zig");
 const Allocator = std.mem.Allocator;
+const allocPrint = std.fmt.allocPrint;
 
 const SystemDescription = mod_sdf.SystemDescription;
 const Interrupt = SystemDescription.Interrupt;
@@ -9,6 +10,7 @@ const Interrupt = SystemDescription.Interrupt;
 // TODO: This whole dtb wrapper stuff probably warrants a redesign, right now
 // its just a whole lot of questionable code duplication
 pub const DeviceTree = struct {
+    allocator: Allocator,
     root_node: Node,
 
     pub const Node = struct {
@@ -20,7 +22,7 @@ pub const DeviceTree = struct {
             Interrupts: [][]u32,
         };
 
-        pub fn prop(node: *Node, prop_tag: std.meta.Tag(Prop)) ?std.meta.TagPayload(Prop, prop_tag) {
+        pub fn prop(node: *Node, comptime prop_tag: std.meta.Tag(Prop)) ?std.meta.TagPayload(Prop, prop_tag) {
             return switch (prop_tag) {
                 .Compatible => return node.internal_node.prop(.Compatible),
                 .Reg => return node.internal_node.prop(.Reg),
@@ -44,31 +46,33 @@ pub const DeviceTree = struct {
             }
             return e;
         };
-        
-        std.log.info("searching for: '{s}'", .{dtb_name});
-        const dtb_file = dtbs_dir.openFile(dtb_name, .{}) catch |e| {
+        const dtb_file_name = allocPrint(allocator, "{s}.dtb", .{dtb_name}) catch @panic("Could not allocate memory for dtb file name");
+        defer allocator.free(dtb_file_name);
+        std.log.info("searching for: '{s}'", .{dtb_file_name});
+        const dtb_file = dtbs_dir.openFile(dtb_file_name, .{}) catch |e| {
             if (e == error.FileNotFound) {
-                std.log.info("could not find DTB file '{s}'", .{dtb_name});
+                std.log.info("could not find DTB file '{s}'", .{dtb_file_name});
             }
             return e;
         };
         defer dtb_file.close();
         const dtb_size = (try dtb_file.stat()).size;
         const dtb_bytes = try dtb_file.reader().readAllAlloc(allocator, dtb_size);
-        const dtb = mod_dtb.parse(dtb_bytes) catch |e| {
-            std.log.info("could not parse DTB file '{s}'", .{dtb_name});
+        const dtb = mod_dtb.parse(allocator, dtb_bytes) catch |e| {
+            std.log.info("could not parse DTB file '{s}'", .{dtb_file_name});
             return e;
         };
-        return DeviceTree{ .root_node = Node{ .internal_node = dtb } };
+        return DeviceTree{ .allocator = allocator, .root_node = Node{ .internal_node = dtb } };
     }
 
     // TODO: maybe should move this into the external dtb module instead?
     // Given the name of a dtb node, return the first found descendent node that matches the name.
     pub fn findNode(devicetree: *DeviceTree, name: []const u8) ?Node {
-        return Node{ .internal_node = recursiveFindNode(devicetree.root_node.internal_node, name)};
+        const res = recursiveFindNode(devicetree.root_node.internal_node, name) orelse return null;
+        return Node{ .internal_node = res};
     }
 
-    fn recursiveFindNode(internal_node: mod_dtb.Node, name: []const u8) ?mod_dtb.Node {
+    fn recursiveFindNode(internal_node: *mod_dtb.Node, name: []const u8) ?*mod_dtb.Node {
         if (std.mem.eql(u8, internal_node.name, name)) {
             return internal_node;
         }
@@ -81,8 +85,8 @@ pub const DeviceTree = struct {
         return null;
     }
 
-    pub fn deinit(devicetree : *DeviceTree, allocator: Allocator) void {
-        devicetree.root_dtb.internal_node.deinit(allocator);
+    pub fn deinit(devicetree : *DeviceTree) void {
+        devicetree.root_node.internal_node.deinit(devicetree.allocator);
     }
 
     const ArmGic = struct {

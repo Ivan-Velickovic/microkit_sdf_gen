@@ -6,16 +6,19 @@ const Allocator = std.mem.Allocator;
 const DeviceTree = mod_devicetree.DeviceTree;
 
 pub const MicrokitBoard = struct {
-    board_type: MicrokitBoardType,
+    allocator: Allocator,
+    board_type: Type,
     devicetree: DeviceTree,
 
-    pub const MicrokitBoardType = enum {
+    pub const Type = enum {
+        // board type defined here has to match board name defined in microkit
+        // and also name of its dtb file.
         qemu_arm_virt,
         odroidc4,
 
         // Get the board enum from its string representation
-        pub fn fromStr(str: []const u8) !MicrokitBoardType {
-            inline for (std.meta.fields(MicrokitBoardType)) |field| {
+        pub fn fromStr(str: []const u8) !Type {
+            inline for (std.meta.fields(Type)) |field| {
                 if (std.mem.eql(u8, str, field.name)) {
                     return @enumFromInt(field.value);
                 }
@@ -33,13 +36,13 @@ pub const MicrokitBoard = struct {
         // }
     };
 
-    pub fn create(allocator: Allocator, board_type: MicrokitBoardType, dtbs_path: []const u8) !MicrokitBoard {
-        const devicetree = try mod_devicetree.parseDtb(allocator, dtbs_path, @tagName(board_type));
-        return MicrokitBoard{ .board_type = board_type, .devicetree = devicetree };
+    pub fn create(allocator: Allocator, board_type: Type, dtbs_path: []const u8) !MicrokitBoard {
+        const devicetree = try DeviceTree.parseDtb(allocator, dtbs_path, @tagName(board_type));
+        return MicrokitBoard{ .allocator = allocator, .board_type = board_type, .devicetree = devicetree };
     }
 
-    pub fn deinit(b: *MicrokitBoard, allocator: Allocator) void {
-        b.devicetree.deinit(allocator);
+    pub fn deinit(b: *MicrokitBoard) void {
+        b.devicetree.deinit();
     }
 
     // Get architecture for each board

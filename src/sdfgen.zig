@@ -11,6 +11,7 @@ const Allocator = std.mem.Allocator;
 const MicrokitBoard = mod_microkitboard.MicrokitBoard;
 const DeviceTree = mod_devicetree.DeviceTree;
 const Sddf = mod_sddf.Sddf;
+const SerialSystem = mod_sddf.SerialSystem;
 
 const SystemDescription = mod_sdf.SystemDescription;
 const Pd = SystemDescription.ProtectionDomain;
@@ -41,12 +42,12 @@ pub fn main() !void {
     // try parseArgs(args, allocator);
 
     // Probe sDDF for configuration files
-    const sddf = try Sddf.probe(allocator, sddf_path);
-    defer sddf.deinit(allocator);  
+    var sddf = try Sddf.probe(allocator, sddf_path);
+    defer sddf.deinit();  
 
     // Probe dtb directory for the board we want
-    const microkitboard = try MicrokitBoard.create(allocator, MicrokitBoard.MicrokitBoardType.qemu_arm_virt, dtbs_path);
-    defer microkitboard.deinit(allocator);
+    var microkitboard = try MicrokitBoard.create(allocator, MicrokitBoard.Type.qemu_arm_virt, dtbs_path);
+    defer microkitboard.deinit();
 
     // The list of compatible drivers will determine what IRQs
     // and memory regions are allocated for the driver. Each device 
@@ -56,5 +57,11 @@ pub fn main() !void {
     // For now, and for simplicity, let's leave this as a problem to solve later. Right
     // now we will keep the device tree as the source of truth.  
 
+    // Create a new system description
+    var system = try SystemDescription.create(allocator, microkitboard.arch());
+    defer system.destroy();
 
+    // Create Serial System
+    var serial_system = SerialSystem.create(allocator, &microkitboard, &sddf);
+    defer serial_system.deinit();
 }
