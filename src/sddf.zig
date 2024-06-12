@@ -151,17 +151,17 @@ pub const Sddf = struct {
 
     // Assumes probe() has been called
     fn findDriverConfig(sddf: *Sddf, compatibles: [][]const u8) ?*Config.Driver {
-        for (sddf.drivers_config.items) |driver| {
+        for (sddf.drivers_config.items) |*driver| {
             // This is yet another point of weirdness with device trees. It is often
             // the case that there are multiple compatible strings for a device and
-            // accompying driver. So we get the user to provide a list of compatible
+            // accompanying driver. So we get the user to provide a list of compatible
             // strings, and we check for a match with any of the compatible strings
             // of a driver.
             for (compatibles) |compatible| {
                 for (driver.compatibles) |driver_compatible| {
                     if (std.mem.eql(u8, driver_compatible, compatible)) {
                         // We have found a compatible driver
-                        return &driver;
+                        return driver;
                     }
                 }
             }
@@ -171,7 +171,7 @@ pub const Sddf = struct {
 
     // Assumes probe() has been called
     fn findComponentConfig(sddf: *Sddf, name: []const u8) ?*Config.Component {
-        for (sddf.components_config.items) |component| {
+        for (sddf.components_config.items) |*component| {
             if (std.mem.eql(u8, component.name, name)) {
                 return component;
             }
@@ -405,7 +405,7 @@ pub const SerialSystem = struct {
         system.clients.append(client) catch @panic("Could not add client to SerialSystem");
     }
 
-    pub fn addToSystemDescription(system: *SerialSystem, sdf: SystemDescription) !void {
+    pub fn addToSystemDescription(system: *SerialSystem, sdf: *SystemDescription) !void {
         _ = .{system, sdf};
     }
 };
