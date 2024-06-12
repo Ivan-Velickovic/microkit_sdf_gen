@@ -46,7 +46,7 @@ pub const DeviceTree = struct {
             }
             return e;
         };
-        const dtb_file_name = allocPrint(allocator, "{s}.dtb", .{dtb_name}) catch @panic("Could not allocate memory for dtb file name");
+        const dtb_file_name = try allocPrint(allocator, "{s}.dtb", .{dtb_name});
         defer allocator.free(dtb_file_name);
         std.log.info("searching for: '{s}'", .{dtb_file_name});
         const dtb_file = dtbs_dir.openFile(dtb_file_name, .{}) catch |e| {

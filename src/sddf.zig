@@ -71,7 +71,7 @@ pub const Sddf = struct {
 
         for (device_classes_arr) |device_class| {
             // Probe for drivers
-            const drivers_name = allocPrint(allocator, "drivers/{s}", .{@tagName(device_class)}) catch @panic("Could not allocate memory for drivers_name");
+            const drivers_name = try allocPrint(allocator, "drivers/{s}", .{@tagName(device_class)});
             std.log.info("searching through: '{s}'", .{drivers_name});
             defer allocator.free(drivers_name);
             var drivers_dir = sddf_dir.openDir(drivers_name, .{ .iterate = true }) catch |e| {
@@ -121,7 +121,7 @@ pub const Sddf = struct {
             }
 
             // Probe for components
-            const components_name = allocPrint(allocator, "{s}/components", .{@tagName(device_class)}) catch @panic("Could not allocate memory for components_name");
+            const components_name = try allocPrint(allocator, "{s}/components", .{@tagName(device_class)});
             std.log.info("searching through: '{s}'", .{components_name});
             var components_dir = try sddf_dir.openDir(components_name, .{});
             defer components_dir.close();
@@ -146,12 +146,20 @@ pub const Sddf = struct {
             }
         }
 
+        for (drivers_config.items) |driver| {
+            std.log.info("driver: {s}", .{driver.name});
+        }
+
+        for (components_config.items) |component| {
+            std.log.info("component: {s}", .{component.name});
+        }
+
         return sddf;
     }
 
     // Assumes probe() has been called
-    fn findDriverConfig(sddf: *Sddf, compatibles: [][]const u8) ?*Config.Driver {
-        for (sddf.drivers_config.items) |*driver| {
+    fn findDriverConfig(sddf: *Sddf, compatibles: [][]const u8) ?Config.Driver {
+        for (sddf.drivers_config.items) |driver| {
             // This is yet another point of weirdness with device trees. It is often
             // the case that there are multiple compatible strings for a device and
             // accompanying driver. So we get the user to provide a list of compatible
@@ -170,8 +178,8 @@ pub const Sddf = struct {
     }
 
     // Assumes probe() has been called
-    fn findComponentConfig(sddf: *Sddf, name: []const u8) ?*Config.Component {
-        for (sddf.components_config.items) |*component| {
+    fn findComponentConfig(sddf: *Sddf, name: []const u8) ?Config.Component {
+        for (sddf.components_config.items) |component| {
             if (std.mem.eql(u8, component.name, name)) {
                 return component;
             }
@@ -295,11 +303,11 @@ pub const Config = struct {
 // 5. Add the system to the system description via addToSystemDescription()
 pub const SerialSystem = struct {
     allocator: Allocator,
-    board: *MicrokitBoard,
-    sddf: *Sddf,
-    virt_rx_config: *Config.Component,
-    virt_tx_config: *Config.Component,
-    driver_config: *Config.Driver,
+    board: MicrokitBoard,
+    sddf: Sddf,
+    virt_rx_config: Config.Component,
+    virt_tx_config: Config.Component,
+    driver_config: Config.Driver,
     device: DeviceTree.Node,
     virt_rx: *Pd,
     virt_tx: *Pd,
@@ -308,7 +316,7 @@ pub const SerialSystem = struct {
     page_size: Mr.PageSize,
     clients: std.ArrayList(*Pd),
 
-    pub fn create(allocator: Allocator, board: *MicrokitBoard, sddf: *Sddf) SerialSystem {
+    pub fn create(allocator: Allocator, board: MicrokitBoard, sddf: Sddf) SerialSystem {
         var system = SerialSystem{
             .allocator = allocator,
             .board = board,
@@ -344,6 +352,8 @@ pub const SerialSystem = struct {
             MicrokitBoard.Type.qemu_arm_virt => system.board.devicetree.findNode("pl011@9000000").?,
             MicrokitBoard.Type.odroidc4 => system.board.devicetree.findNode("serial@3000").?,
         };
+        const asd = system.device.prop(.Compatible).?;
+        _ = system.sddf.findDriverConfig(asd).?;
         system.driver_config = system.sddf.findDriverConfig(system.device.prop(.Compatible).?).?;
 
         // Init default virt RX
@@ -375,18 +385,12 @@ pub const SerialSystem = struct {
 
     pub fn setVirtRx(system: *SystemDescription, name: []const u8) error.SddfConfigNotFound!void {
         errdefer system.virt_rx_config = undefined;
-        system.virt_rx_config = system.sddf.findComponentConfig(name);
-        if (system.virt_rx_config == null) {
-            return error.SddfConfigNotFound;
-        }
+        system.virt_rx_config = system.sddf.findComponentConfig(name) orelse return error.SddfConfigNotFound;
     }
 
     pub fn setVirtTx(system: *SystemDescription, name: []const u8) error.SddfConfigNotFound!void {
         errdefer system.virt_tx_config = undefined;
-        system.virt_tx_config = system.sddf.findComponentConfig(name);
-        if (system.virt_tx_config == null) {
-            return error.SddfConfigNotFound;
-        }
+        system.virt_tx_config = system.sddf.findComponentConfig(name) orelse return error.SddfConfigNotFound;
     }
 
     pub fn setSdfDriver(system: *SerialSystem, driver: *Pd) void {
