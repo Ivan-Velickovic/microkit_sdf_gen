@@ -37,10 +37,6 @@ pub fn main() !void {
     const allocator = arena.allocator();
     defer arena.deinit();
 
-    // const args = try std.process.argsAlloc(allocator);
-    // defer std.process.argsFree(allocator, args);
-    // try parseArgs(args, allocator);
-
     // Probe sDDF for configuration files
     var sddf = try Sddf.probe(allocator, sddf_path);
     defer sddf.deinit();  

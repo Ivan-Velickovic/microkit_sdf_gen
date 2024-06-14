@@ -17,9 +17,9 @@ pub const DeviceTree = struct {
         internal_node: *mod_dtb.Node,
         
         pub const Prop = union(enum) {
-            Compatible: [][]const u8,
-            Reg: [][2]u128,
-            Interrupts: [][]u32,
+            Compatible: []const []const u8,
+            Reg: []const [2]u128,
+            Interrupts: []const []const u32,
         };
 
         pub fn prop(node: *Node, comptime prop_tag: std.meta.Tag(Prop)) ?std.meta.TagPayload(Prop, prop_tag) {
