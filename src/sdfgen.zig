@@ -58,9 +58,9 @@ pub fn main() !void {
     defer system.destroy();
 
     // Create Serial System
-    var serial_system = SerialSystem.create(allocator, microkitboard, sddf);
+    var serial_system = SerialSystem.create(allocator, microkitboard, sddf, system);
     defer serial_system.deinit();
-    try serial_system.addToSystemDescription(&system);
+    try serial_system.addToSystemDescription();
 
     // system.toXml()
 }

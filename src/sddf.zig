@@ -293,22 +293,24 @@ pub const SerialSystem = struct {
     allocator: Allocator,
     board: MicrokitBoard,
     sddf: Sddf,
+    sdf: *SystemDescription,
     virt_rx_config: Config.Component,
     virt_tx_config: Config.Component,
     driver_config: Config.Driver,
     device: DeviceTree.Node,
-    virt_rx: *Pd,
-    virt_tx: *Pd,
-    driver: *Pd,
+    virt_rx: Pd,
+    virt_tx: Pd,
+    driver: Pd,
     region_size: usize,
     page_size: Mr.PageSize,
     clients: std.ArrayList(*Pd),
 
-    pub fn create(allocator: Allocator, board: MicrokitBoard, sddf: Sddf) SerialSystem {
+    pub fn create(allocator: Allocator, board: MicrokitBoard, sddf: Sddf, sdf: *SystemDescription) SerialSystem {
         var system = SerialSystem{
             .allocator = allocator,
             .board = board,
             .sddf = sddf,
+            .sdf = sdf,
             .virt_rx_config = undefined,
             .virt_tx_config = undefined,
             .driver_config = undefined,
@@ -355,7 +357,23 @@ pub const SerialSystem = struct {
     }
 
     pub fn genSdfObjs(system: *SerialSystem) void {
-        _ = system;
+        // Create serial driver
+        const driver_image = ProgramImage.create(allocPrint(system.allocator, "{s}.elf", .{system.driver_config.name}) catch @panic("Could not allocate memory for allocPrint"));
+        defer system.allocator.free(driver_image.path);
+        const driver = Pd.create(system.sdf, system.driver_config.name, driver_image);
+        // TODO: investigate what we need to know about the rest of the system to decide priority
+        driver.priority = 100;
+        system.driver = driver;
+
+        // Map in the device regions
+        // const driver_mr = Mr.create(sdf, , Uart.size(board), Uart.paddr(board), .small);
+        // sdf.addMemoryRegion(uart_mr);
+        // uart_driver.addMap(Map.create(uart_mr, 0x5_000_000, .{ .read = true, .write = true }, false, "uart_base"));
+
+        // Create serial virtualiser RX
+
+        // Create serial virtualiser TX
+
     }
 
     // Set sDDF device to node name in device tree
@@ -379,15 +397,15 @@ pub const SerialSystem = struct {
         system.virt_tx_config = system.sddf.findComponentConfig(name) orelse return error.SddfConfigNotFound;
     }
 
-    pub fn setSdfDriver(system: *SerialSystem, driver: *Pd) void {
+    pub fn setSdfDriver(system: *SerialSystem, driver: Pd) void {
         system.driver = driver;
     }
 
-    pub fn setSdfVirtRx(system: *SerialSystem, virt_rx: *Pd) void {
+    pub fn setSdfVirtRx(system: *SerialSystem, virt_rx: Pd) void {
         system.virt_rx = virt_rx;
     }
 
-    pub fn setSdfVirtTx(system: *SerialSystem, virt_tx: *Pd) void {
+    pub fn setSdfVirtTx(system: *SerialSystem, virt_tx: Pd) void {
         system.virt_tx = virt_tx;
     }
 
@@ -395,7 +413,42 @@ pub const SerialSystem = struct {
         system.clients.append(client) catch @panic("Could not add client to SerialSystem");
     }
 
-    pub fn addToSystemDescription(system: *SerialSystem, sdf: *SystemDescription) !void {
-        _ = .{system, sdf};
+    pub fn addToSystemDescription(system: *SerialSystem) !void {
+        // TODO: .Reg returns a list of memory regions, should loop to handle each region
+        const dev_regions: [2]u128 = system.device.prop(.Reg)[0];
+        // TODO: we're converting u128 to usize here... fix later
+        Mr.create(system.sdf, "serial_dev_region", @as(usize, dev_regions[1]), @as(usize, dev_regions[0]), .small);
+
+        // Mr.create(sdf, "");
+
+
+        // const uart_irq = Irq.create(Uart.irq(board), Uart.trigger(board), null);
+        // try uart_driver.addInterrupt(uart_irq);
+
+        // // 2. Create MUX RX
+        // const serial_mux_rx_image = ProgramImage.create("serial_mux_rx.elf");
+        // var serial_mux_rx = Pd.create(sdf, "serial_mux_rx", serial_mux_rx_image);
+        // serial_mux_rx.priority = 98;
+        // sdf.addProtectionDomain(&serial_mux_rx);
+
+        // // 3. Create MUX TX
+        // const serial_mux_tx_image = ProgramImage.create("serial_mux_tx.elf");
+        // var serial_mux_tx = Pd.create(sdf, "serial_mux_tx", serial_mux_tx_image);
+        // serial_mux_tx.priority = 99;
+        // sdf.addProtectionDomain(&serial_mux_tx);
+
+        // // 4. Create native serial device
+        // const serial_tester_image = ProgramImage.create("serial_tester.elf");
+        // var serial_tester = Pd.create(sdf, "serial_tester", serial_tester_image);
+        // serial_tester.priority = 97;
+        // sdf.addProtectionDomain(&serial_tester);
+
+        // // 5. Connect UART driver and MUX RX
+        // const rx_free = Mr.create(sdf, "rx_free_driver", SDDF_BUF_SIZE, null, .large);
+        // const rx_used = Mr.create(sdf, "rx_used_driver", SDDF_BUF_SIZE, null, .large);
+        // const rx_data = Mr.create(sdf, "rx_data_driver", SDDF_BUF_SIZE, null, .large);
+        // sdf.addMemoryRegion(rx_free);
+        // sdf.addMemoryRegion(rx_used);
+        // sdf.addMemoryRegion(rx_data);
     }
 };
