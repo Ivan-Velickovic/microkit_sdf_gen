@@ -6,13 +6,13 @@
         <map mr="test" vaddr="0x400000000" perms="rw" cached="true" />
         <map mr="test" vaddr="0x600000000" perms="wx" cached="true" />
         <map mr="test" vaddr="0x800000000" perms="rwx" cached="true" />
-        <irq irq="33" trigger="level" id="1" />
+        <irq irq="33" trigger="level" id="0" />
     </protection_domain>
     <protection_domain name="hello-2" priority="100" budget="100" period="100" passive="false" pp="false">
         <program_image path="hello.elf" />
     </protection_domain>
     <channel>
-        <end pd="hello-1" id="0" />
+        <end pd="hello-1" id="1" />
         <end pd="hello-2" id="0" />
     </channel>
 </system>

@@ -270,11 +270,18 @@ pub const SystemDescription = struct {
         pp: bool = false,
         /// Child nodes
         maps: ArrayList(Map),
+        /// The length of this array is bound by the maximum number of child PDs a PD can have.
         child_pds: ArrayList(*ProtectionDomain),
+        /// The length of this array is bound by the maximum number of IRQs a PD can have.
         irqs: ArrayList(Interrupt),
         vm: ?*VirtualMachine,
-        /// Internal counter of the next available ID
-        next_avail_id: usize = 0,
+        /// Keeping track of what IDs are available for channels, IRQs, etc
+        ids: std.bit_set.StaticBitSet(MAX_IDS),
+
+        // Matches Microkit implementation
+        const MAX_IDS = 62;
+        const MAX_IRQS = MAX_IDS;
+        const MAX_CHILD_PDS = MAX_IDS;
 
         pub const ProgramImage = struct {
             path: []const u8,
@@ -295,18 +302,46 @@ pub const SystemDescription = struct {
                 .name = name,
                 .program_image = program_image,
                 .maps = ArrayList(Map).init(sdf.allocator),
-                .child_pds = ArrayList(*ProtectionDomain).init(sdf.allocator),
-                .irqs = ArrayList(Interrupt).init(sdf.allocator),
+                .child_pds = ArrayList(*ProtectionDomain).initCapacity(sdf.allocator, MAX_CHILD_PDS) catch @panic("Could not allocate child_pds"),
+                .irqs = ArrayList(Interrupt).initCapacity(sdf.allocator, MAX_IRQS) catch @panic("Could not allocate irqs"),
                 .vm = null,
+                .ids = std.bit_set.StaticBitSet(MAX_IDS).initEmpty(),
             };
         }
 
         pub fn destroy(pd: *ProtectionDomain) void {
             pd.maps.deinit();
+            pd.child_pds.deinit();
             for (pd.child_pds.items) |child_pd| {
                 child_pd.destroy();
             }
             pd.irqs.deinit();
+        }
+
+        /// There may be times where PD resources with an ID, such as a channel
+        /// or IRQ require a fixed ID while others do not. One example might be
+        /// that an IRQ needs to be at a particular ID while the channel numbers
+        /// do not matter.
+        /// This function is used to allocate an ID for use by one of those
+        /// resources ensuring there are no clashes or duplicates.
+        pub fn allocateId(pd: *ProtectionDomain, id: ?usize) !usize {
+            if (id) |chosen_id| {
+                if (pd.ids.isSet(chosen_id)) {
+                    return error.AlreadyAllocatedId;
+                } else {
+                    pd.ids.setValue(chosen_id, true);
+                    return chosen_id;
+                }
+            } else {
+                for (0..MAX_IDS) |i| {
+                    if (!pd.ids.isSet(i)) {
+                        pd.ids.setValue(i, true);
+                        return i;
+                    }
+                }
+
+                return error.NoMoreIds;
+            }
         }
 
         pub fn addVirtualMachine(pd: *ProtectionDomain, vm: *VirtualMachine) !void {
@@ -318,11 +353,17 @@ pub const SystemDescription = struct {
             pd.maps.append(map) catch @panic("Could not add Map to ProtectionDomain");
         }
 
-        pub fn addInterrupt(pd: *ProtectionDomain, interrupt: Interrupt) !void {
-            // TODO: should check that the IRQ number does not already exist!
-            // TODO: we have a maximum number of interrupts! we should be checking
-            // that we do not exceed the maximum number of channel IDs
-            try pd.irqs.append(interrupt);
+        pub fn addInterrupt(pd: *ProtectionDomain, irq: Interrupt) !void {
+            // If the IRQ ID is already set, then we check that we can allocate it with
+            // the PD.
+            if (irq.id) |id| {
+                _ = try pd.allocateId(id);
+                try pd.irqs.append(irq);
+            } else {
+                var irq_with_id = irq;
+                irq_with_id.id = try pd.allocateId(null);
+                try pd.irqs.append(irq_with_id);
+            }
         }
 
         pub fn addChild(pd: *ProtectionDomain, child: *ProtectionDomain) !void {
@@ -376,18 +417,15 @@ pub const SystemDescription = struct {
             }
             // Add child PDs
             for (pd.child_pds.items) |child_pd| {
-                try child_pd.toXml(sdf, writer, child_separator, pd.next_avail_id);
-                pd.next_avail_id += 1;
+                try child_pd.toXml(sdf, writer, child_separator, try pd.allocateId(null));
             }
             // Add virtual machine (if we have one)
             if (pd.vm) |vm| {
-                try vm.toXml(sdf, writer, child_separator, pd.next_avail_id);
-                pd.next_avail_id += 1;
+                try vm.toXml(sdf, writer, child_separator, try pd.allocateId(null));
             }
             // Add interrupts
             for (pd.irqs.items) |irq| {
-                try irq.toXml(sdf, writer, child_separator, pd.next_avail_id);
-                pd.next_avail_id += 1;
+                try irq.toXml(sdf, writer, child_separator);
             }
 
             const bottom = try allocPrint(sdf.allocator, "{s}</protection_domain>\n", .{ separator });
@@ -406,11 +444,9 @@ pub const SystemDescription = struct {
             const ch = Channel{
                 .pd1 = pd1,
                 .pd2 = pd2,
-                .pd1_end_id = pd1.next_avail_id,
-                .pd2_end_id = pd2.next_avail_id,
+                .pd1_end_id = pd1.allocateId(null) catch @panic("Could not allocate ID for channel"),
+                .pd2_end_id = pd2.allocateId(null) catch @panic("Could not allocate ID for channel"),
             };
-            pd1.next_avail_id += 1;
-            pd2.next_avail_id += 1;
 
             return ch;
         }
@@ -430,7 +466,7 @@ pub const SystemDescription = struct {
     };
 
     pub const Interrupt = struct {
-        fixed_id: ?usize = null,
+        id: ?usize = null,
         /// IRQ number that will be registered with seL4. That means that this
         /// number needs to map onto what seL4 observes (e.g the numbers in the
         /// device tree do not necessarily map onto what seL4 sees on ARM).
@@ -442,17 +478,18 @@ pub const SystemDescription = struct {
         pub const Trigger = enum { edge, level };
 
         pub fn create(irq: usize, trigger: Trigger, id: ?usize) Interrupt {
-            // TODO: if there's a fixed id then we need to check it's not allocated already
-            // TODO: the XML export of a PD also needs to consider the fixed IDs
-            return Interrupt{ .irq = irq, .trigger = trigger, .fixed_id = id };
+            return Interrupt{ .irq = irq, .trigger = trigger, .id = id };
         }
 
-        pub fn toXml(irq: *const Interrupt, sdf: *SystemDescription, writer: ArrayList(u8).Writer, separator: []const u8, id: usize) !void {
+        pub fn toXml(irq: *const Interrupt, sdf: *SystemDescription, writer: ArrayList(u8).Writer, separator: []const u8) !void {
+            // By the time we get here, something should have populated the 'id' field.
+            std.debug.assert(irq.id != null);
+
             const irq_str =
                 \\{s}<irq irq="{}" trigger="{s}" id="{}" />
             ;
-            const irq_id = if (irq.fixed_id) |irq_fixed_id| irq_fixed_id else id;
-            const irq_xml = try allocPrint(sdf.allocator, irq_str, .{ separator, irq.irq, @tagName(irq.trigger), irq_id });
+
+            const irq_xml = try allocPrint(sdf.allocator, irq_str, .{ separator, irq.irq, @tagName(irq.trigger), irq.id.? });
             defer sdf.allocator.free(irq_xml);
 
             _ = try writer.write(irq_xml);
