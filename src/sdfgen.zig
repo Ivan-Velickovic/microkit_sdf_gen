@@ -45,22 +45,18 @@ pub fn main() !void {
     var microkitboard = try MicrokitBoard.create(allocator, MicrokitBoard.Type.qemu_arm_virt, dtbs_path);
     defer microkitboard.deinit();
 
-    // The list of compatible drivers will determine what IRQs
-    // and memory regions are allocated for the driver. Each device 
-    // will have separate memory regions and interrupts needed.
-    // My only worry here is that a driver does not necessarily *need* all the memory
-    // that a device tree will specify. I think the same can be said of interrupts.
-    // For now, and for simplicity, let's leave this as a problem to solve later. Right
-    // now we will keep the device tree as the source of truth.  
-
     // Create a new system description
     var system = try SystemDescription.create(allocator, microkitboard.arch());
     defer system.destroy();
 
-    // Create Serial System
-    var serial_system = SerialSystem.create(allocator, microkitboard, sddf, system);
+    // Create Serial System and add it to the system description
+    var serial_system = SerialSystem.create(allocator, &microkitboard, &sddf, &system);
     defer serial_system.deinit();
     try serial_system.addToSystemDescription();
 
-    // system.toXml()
+    // Write out the system description
+    const xml = try system.toXml();
+    var xml_file = try std.fs.cwd().createFile("out.system", .{});
+    defer xml_file.close();
+    _ = try xml_file.write(xml);
 }
