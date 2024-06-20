@@ -100,6 +100,7 @@ pub const Sddf = struct {
                 defer driver_meta_file.close();
                 const driver_meta_size = (try driver_meta_file.stat()).size;
                 const driver_meta_bytes = try driver_meta_file.reader().readAllAlloc(allocator, driver_meta_size);
+                // defer allocator.free(driver_meta_bytes);
                 std.debug.assert(driver_meta_bytes.len == driver_meta_size);
                 // TODO: we have no information if the parsing fails. We need to do some error output if
                 // it the input is malformed.
@@ -184,9 +185,7 @@ pub const Meta = struct {
 // Usage of this Serial System:
 // 1. Create a Serial System via create(), this will use the default sDDF objects and configurations.
 // 2. (Optional) set sDDF objects and configurations explicitly, do so via setDevice(), setVirtRx(), setVirtTx().
-//    If those have been set then regenerate the system's sdf objects via genSdfObjs().
-// 3. (Optional) Set the system's sdf objects directly, via setSdfDriver(), setSdfVirtRx(), setSdfVirtTx()
-// 4. Add clients to the system via addSdfClient()
+// 4. Add clients to the system via addClient()
 // 5. Add the system to the system description via addToSystemDescription()
 pub const SerialSystem = struct {
     allocator: Allocator,
@@ -197,9 +196,12 @@ pub const SerialSystem = struct {
     page_size: Mr.PageSize,
     driver_meta: Meta.Driver,
     device: DeviceTree.Node,
-    virt_rx: Pd,
-    virt_tx: Pd,
-    driver: Pd,
+    // Why are these pointers? When assigning to these fields, we can't guarantee Zig to do a pass-by-value
+    // which means the struct will likely live on the stack and the pointers will be dangling when the function
+    // returns. To get around this we make sure that the structs are heap-allocated and the pointers point to them.
+    virt_rx: *Pd,
+    virt_tx: *Pd,
+    driver: *Pd,
     device_mr: Mr,
     driver_virt_tx_mrs: SerialSystem.MemoryRegions,
     driver_virt_rx_mrs: SerialSystem.MemoryRegions,
@@ -298,12 +300,15 @@ pub const SerialSystem = struct {
         // TODO: we're converting u128 to usize here... fix later
         const dev_region_base: usize = @intCast(dev_regions[0]);
         const dev_region_size: usize = @intCast(dev_regions[1]);
-        system.device_mr = Mr.create(system.sdf, DRV_DEV_MR_NAME, dev_region_base, dev_region_size, system.page_size);
+        // TODO: Page size of device memory should be configurable?
+        system.device_mr = Mr.create(system.sdf, DRV_DEV_MR_NAME, dev_region_base, dev_region_size, .small);
 
         // Create serial driver
-        const driver_image = ProgramImage.create(allocPrint(system.allocator, "{s}.elf", .{DRV_NAME}) catch @panic("Could not allocate memory for allocPrint"));
-        defer system.allocator.free(driver_image.path);
-        system.driver = Pd.create(system.sdf, DRV_NAME, driver_image);
+        // TODO: This needs to be deallocated, but only after SystemDescription is done with it
+        const driver_image_path = allocPrint(system.allocator, "{s}.elf", .{DRV_NAME}) catch @panic("Could not allocate memory for allocPrint");
+        const driver_image = ProgramImage.create(driver_image_path);
+        system.driver = system.allocator.create(Pd) catch @panic("fuck");
+        system.driver.* = Pd.create(system.sdf, DRV_NAME, driver_image);
         system.driver.priority = 100;
         // TODO: I'm assuming only 1 interrupt exists for serial devices
         const interrupts = system.device.prop(.Interrupts).?[0];
@@ -318,15 +323,17 @@ pub const SerialSystem = struct {
         system.driver.addMap(Map.create(system.device_mr, DRV_DEV_VADDR, .{ .read = true, .write = true }, false, DRV_DEV_SETVAR));
 
         // Create virtualiser TX
-        const virt_tx_image = ProgramImage.create(allocPrint(system.allocator, "{s}.elf", .{VIRT_TX_NAME}) catch @panic("Could not allocate memory for allocPrint"));
-        defer system.allocator.free(virt_tx_image.path);
-        system.virt_tx = Pd.create(system.sdf, VIRT_TX_NAME, virt_tx_image);
+        const virt_tx_image_path = allocPrint(system.allocator, "{s}.elf", .{VIRT_TX_NAME}) catch @panic("Could not allocate memory for allocPrint");
+        const virt_tx_image = ProgramImage.create(virt_tx_image_path);
+        system.virt_tx = system.allocator.create(Pd) catch @panic("failed to alloc virt_tx");
+        system.virt_tx.* = Pd.create(system.sdf, VIRT_TX_NAME, virt_tx_image);
         system.virt_tx.priority = 99;
         
         // Create virtualiser RX
-        const virt_rx_image = ProgramImage.create(allocPrint(system.allocator, "{s}.elf", .{VIRT_RX_NAME}) catch @panic("Could not allocate memory for allocPrint"));
-        defer system.allocator.free(virt_rx_image.path);
-        system.virt_rx = Pd.create(system.sdf, VIRT_RX_NAME, virt_rx_image);
+        const virt_rx_image_path = allocPrint(system.allocator, "{s}.elf", .{VIRT_RX_NAME}) catch @panic("Could not allocate memory for allocPrint");
+        const virt_rx_image = ProgramImage.create(virt_rx_image_path);
+        system.virt_rx = system.allocator.create(Pd) catch @panic("failed to alloc virt_rx");
+        system.virt_rx.* = Pd.create(system.sdf, VIRT_RX_NAME, virt_rx_image);
         system.virt_rx.priority = 98;
 
         // Create memory regions for driver virtualiser TX
@@ -354,8 +361,8 @@ pub const SerialSystem = struct {
         system.virt_rx.addMap(Map.create(system.driver_virt_rx_mrs.data, VIRT_RX_DRV_DATA_VADDR, .{ .read = true, .write = true }, false, VIRT_RX_DRV_DATA_SETVAR));
         
         // Create channels for driver virtualiser TX & RX
-        system.driver_virt_tx_ch = Channel.create(&system.driver, &system.virt_tx);
-        system.driver_virt_rx_ch = Channel.create(&system.driver, &system.virt_rx);
+        system.driver_virt_tx_ch = Channel.create(system.driver, system.virt_tx);
+        system.driver_virt_rx_ch = Channel.create(system.driver, system.virt_rx);
     }
 
     // TODO: Rethink how to implement the set functions below...
@@ -465,9 +472,9 @@ pub const SerialSystem = struct {
             system.sdf.addMemoryRegion(client_mrs.data);
         }
 
-        system.sdf.addProtectionDomain(&system.driver);
-        system.sdf.addProtectionDomain(&system.virt_rx);
-        system.sdf.addProtectionDomain(&system.virt_tx);
+        system.sdf.addProtectionDomain(system.driver);
+        system.sdf.addProtectionDomain(system.virt_rx);
+        system.sdf.addProtectionDomain(system.virt_tx);
 
         for (system.clients.items) |client| {
             system.sdf.addProtectionDomain(client);

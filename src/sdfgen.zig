@@ -24,7 +24,6 @@ const Channel = SystemDescription.Channel;
 
 const VirtualMachineSystem = mod_vmm.VirtualMachineSystem;
 
-// var xml_out_path: []const u8 = "example.system";
 var sddf_path: []const u8 = "sddf";
 var dtbs_path: []const u8 = "dtbs";
 
@@ -33,9 +32,10 @@ pub fn main() !void {
     // of allocations in a linear fashion and then just tearing everything down. This has better
     // performance than something like the General Purpose Allocator.
     // TODO: have a build argument that swaps the allocator.
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const allocator = arena.allocator();
-    defer arena.deinit();
+    // var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer _ = gpa.deinit();
 
     // Probe sDDF for configuration files
     var sddf = try Sddf.probe(allocator, sddf_path);
@@ -56,7 +56,5 @@ pub fn main() !void {
 
     // Write out the system description
     const xml = try system.toXml();
-    var xml_file = try std.fs.cwd().createFile("out.system", .{});
-    defer xml_file.close();
-    _ = try xml_file.write(xml);
+    std.debug.print("{s}", .{xml});
 }
