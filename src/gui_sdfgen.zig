@@ -7,6 +7,7 @@ const dtb = @import("dtb");
 const Allocator = std.mem.Allocator;
 const SystemDescription = mod_sdf.SystemDescription;
 const Pd = SystemDescription.ProtectionDomain;
+const Mr = SystemDescription.MemoryRegion;
 const Vm = SystemDescription.VirtualMachine;
 const Channel = SystemDescription.Channel;
 const ProgramImage = Pd.ProgramImage;
@@ -186,15 +187,31 @@ fn parseChannelFromJson(sdf: *SystemDescription, channel_config: anytype) !Chann
     channel_new.pd1_end_id = @intCast(channel_config.get("pd1_end_id").?.integer);
     channel_new.pd2_end_id = @intCast(channel_config.get("pd2_end_id").?.integer);
 
-    const channel_copy = try sdf.allocator.create(Channel);
-
-    channel_copy.* = channel_new;
     return channel_new;
+    // const channel_copy = try sdf.allocator.create(Channel);
+
+    // channel_copy.* = channel_new;
+    // return channel_copy;
+}
+
+fn parseMRFromJson(sdf: *SystemDescription, mr_config: anytype) !Mr {
+    const name = mr_config.get("name").?.string;
+    const size: usize = @intCast(mr_config.get("size").?.integer);
+    const phys_addr: usize = @intCast(mr_config.get("phys_addr").?.integer);
+    // const page_size: Mr.PageSize = @intCast(mr_config.get("page_size").?.integer);
+    const mr_new = Mr.create(sdf, name, size, phys_addr, .small);
+
+    return mr_new;
+    // const mr_copy = try sdf.allocator.create(Mr);
+
+    // mr_copy.* = mr_new;
+    // return mr_copy;
 }
 
 fn parseAndBuild(sdf: *SystemDescription, json: anytype) ![]const u8 {
     const pds = json.get("pds").?.array;
     const channels = json.get("channels").?.array;
+    const mrs = json.get("mrs").?.array;
 
     var i: usize = 0;
     while (i < pds.items.len) : (i += 1) {
@@ -210,14 +227,19 @@ fn parseAndBuild(sdf: *SystemDescription, json: anytype) ![]const u8 {
     while (i < channels.items.len) : (i += 1) {
         const channel_config = channels.items[i].object;
 
-        const channel_new = parseChannelFromJson(sdf, channel_config) catch |err| {
-            return switch (err) {
-                error.PdCannotBeFound => "Wtf?",
-                else => "??????",
-            };
-            // return "Failed to parse Channel";
+        const channel_new = parseChannelFromJson(sdf, channel_config) catch {
+            return "Failed to parse Channel";
         };
         sdf.addChannel(channel_new);
+    }
+
+    while (i < mrs.items.len) : (i += 1) {
+        const mr_config = mrs.items[i].object;
+
+        const mr_new = parseMRFromJson(sdf, mr_config) catch {
+            return "Failed to parse MR";
+        };
+        sdf.addMemoryRegion(mr_new);
     }
 
     const xml = sdf.toXml();
