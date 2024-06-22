@@ -9,6 +9,7 @@ const SystemDescription = mod_sdf.SystemDescription;
 const Pd = SystemDescription.ProtectionDomain;
 const Mr = SystemDescription.MemoryRegion;
 const Vm = SystemDescription.VirtualMachine;
+const Map = SystemDescription.Map;
 const Channel = SystemDescription.Channel;
 const ProgramImage = Pd.ProgramImage;
 
@@ -126,6 +127,15 @@ fn parseVMFromJson(sdf: *SystemDescription, node_config: anytype) !*Vm {
     return vm_copy;
 }
 
+fn getMRByName(sdf: *SystemDescription, name: []const u8) !Mr {
+    for (sdf.mrs.items) |mr| {
+        if (std.mem.eql(u8, name, mr.name)) {
+            return mr;
+        }
+    }
+    return error.InvalidMrName;
+}
+
 fn parsePDFromJson(sdf: *SystemDescription, node_config: anytype) !*Pd {
     const pd_image = ProgramImage.create(node_config.get("prog_img").?.string);
     var pd_new = Pd.create(sdf, node_config.get("name").?.string, pd_image);
@@ -142,19 +152,29 @@ fn parsePDFromJson(sdf: *SystemDescription, node_config: anytype) !*Pd {
 
         if (std.mem.eql(u8, node_type, "PD")) {
             const child_pd = parsePDFromJson(sdf, child_config) catch {
-                return error.FailToParse;
+                return error.FailToParsePD;
             };
             pd_new.addChild(child_pd) catch |err| {
                 return err;
             };
         } else if (std.mem.eql(u8, node_type, "VM")) {
             const child_vm = parseVMFromJson(sdf, child_config) catch {
-                return error.FailToParse;
+                return error.FailToParseVM;
             };
             pd_new.addVirtualMachine(child_vm) catch |err| {
                 return err;
             };
         }
+    }
+
+    const map_configs = node_config.get("maps").?.array;
+    i = 0;
+    while (i < map_configs.items.len) : (i += 1) {
+        const map_config = map_configs.items[i].object;
+        const map_new = parseMapFromJson(sdf, map_config) catch |err| {
+            return err;
+        };
+        pd_new.addMap(map_new);
     }
 
     const pd_copy = try sdf.allocator.create(Pd);
@@ -188,10 +208,6 @@ fn parseChannelFromJson(sdf: *SystemDescription, channel_config: anytype) !Chann
     channel_new.pd2_end_id = @intCast(channel_config.get("pd2_end_id").?.integer);
 
     return channel_new;
-    // const channel_copy = try sdf.allocator.create(Channel);
-
-    // channel_copy.* = channel_new;
-    // return channel_copy;
 }
 
 fn parseMRFromJson(sdf: *SystemDescription, mr_config: anytype) !Mr {
@@ -202,10 +218,21 @@ fn parseMRFromJson(sdf: *SystemDescription, mr_config: anytype) !Mr {
     const mr_new = Mr.create(sdf, name, size, phys_addr, .small);
 
     return mr_new;
-    // const mr_copy = try sdf.allocator.create(Mr);
+}
 
-    // mr_copy.* = mr_new;
-    // return mr_copy;
+fn parseMapFromJson(sdf: *SystemDescription, map_config: anytype) !Map {
+    const mr = getMRByName(sdf, map_config.get("mr").?.string) catch |err| {
+        return err;
+    };
+
+    const vaddr: usize = @intCast(map_config.get("vaddr").?.integer);
+    const perm_r = map_config.get("perm_r").?.bool;
+    const perm_w = map_config.get("perm_w").?.bool;
+    const perm_x = map_config.get("perm_x").?.bool;
+    const cached = map_config.get("cached").?.bool;
+    const setvar_vaddr = map_config.get("setvar_vaddr").?.string;
+    const map = Map.create(mr, vaddr, .{ .read = perm_r, .write = perm_w, .execute = perm_x }, cached, setvar_vaddr);
+    return map;
 }
 
 fn parseAndBuild(sdf: *SystemDescription, json: anytype) ![]const u8 {
@@ -214,6 +241,16 @@ fn parseAndBuild(sdf: *SystemDescription, json: anytype) ![]const u8 {
     const mrs = json.get("mrs").?.array;
 
     var i: usize = 0;
+    while (i < mrs.items.len) : (i += 1) {
+        const mr_config = mrs.items[i].object;
+
+        const mr_new = parseMRFromJson(sdf, mr_config) catch {
+            return "Failed to parse MR";
+        };
+        sdf.addMemoryRegion(mr_new);
+    }
+
+    i = 0;
     while (i < pds.items.len) : (i += 1) {
         const pd_config = pds.items[i].object;
 
@@ -231,15 +268,6 @@ fn parseAndBuild(sdf: *SystemDescription, json: anytype) ![]const u8 {
             return "Failed to parse Channel";
         };
         sdf.addChannel(channel_new);
-    }
-
-    while (i < mrs.items.len) : (i += 1) {
-        const mr_config = mrs.items[i].object;
-
-        const mr_new = parseMRFromJson(sdf, mr_config) catch {
-            return "Failed to parse MR";
-        };
-        sdf.addMemoryRegion(mr_new);
     }
 
     const xml = sdf.toXml();
