@@ -7,6 +7,8 @@ const dtb = @import("dtb");
 const Allocator = std.mem.Allocator;
 const SystemDescription = mod_sdf.SystemDescription;
 const Pd = SystemDescription.ProtectionDomain;
+const Vm = SystemDescription.VirtualMachine;
+const Channel = SystemDescription.Channel;
 const ProgramImage = Pd.ProgramImage;
 
 var dtbs_path: []const u8 = "dtbs";
@@ -111,6 +113,117 @@ fn abstractions(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) 
     return xml;
 }
 
+fn parseVMFromJson(sdf: *SystemDescription, node_config: anytype) !*Vm {
+    var vm_new = Vm.create(sdf, node_config.get("name").?.string);
+    vm_new.budget = @intCast(node_config.get("budget").?.integer);
+    vm_new.priority = @intCast(node_config.get("priority").?.integer);
+    vm_new.period = @intCast(node_config.get("period").?.integer);
+    // vm_new.pp = node_config.get("pp").?.bool;
+
+    const vm_copy = try sdf.allocator.create(Vm);
+    vm_copy.* = vm_new;
+    return vm_copy;
+}
+
+fn parsePDFromJson(sdf: *SystemDescription, node_config: anytype) !*Pd {
+    const pd_image = ProgramImage.create(node_config.get("prog_img").?.string);
+    var pd_new = Pd.create(sdf, node_config.get("name").?.string, pd_image);
+    pd_new.budget = @intCast(node_config.get("budget").?.integer);
+    pd_new.priority = @intCast(node_config.get("priority").?.integer);
+    pd_new.period = @intCast(node_config.get("period").?.integer);
+    // pd_new.pp = node_config.get("pp").?.bool;
+
+    const children = node_config.get("children").?.array;
+    var i: usize = 0;
+    while (i < children.items.len) : (i += 1) {
+        const child_config = children.items[i].object;
+        const node_type = child_config.get("type").?.string;
+
+        if (std.mem.eql(u8, node_type, "PD")) {
+            const child_pd = parsePDFromJson(sdf, child_config) catch {
+                return error.FailToParse;
+            };
+            pd_new.addChild(child_pd) catch |err| {
+                return err;
+            };
+        } else if (std.mem.eql(u8, node_type, "VM")) {
+            const child_vm = parseVMFromJson(sdf, child_config) catch {
+                return error.FailToParse;
+            };
+            pd_new.addVirtualMachine(child_vm) catch |err| {
+                return err;
+            };
+        }
+    }
+
+    const pd_copy = try sdf.allocator.create(Pd);
+    // defer pd_copy.destroy();
+
+    pd_copy.* = pd_new;
+    return pd_copy;
+}
+
+fn getPDByName(sdf: *SystemDescription, name: []const u8) !*Pd {
+    for (sdf.pds.items) |pd| {
+        if (std.mem.eql(u8, name, pd.name)) {
+            return pd;
+        }
+    }
+    return error.InvalidPdName;
+}
+
+fn parseChannelFromJson(sdf: *SystemDescription, channel_config: anytype) !Channel {
+    const pd1_name = channel_config.get("pd1").?.string;
+    const pd2_name = channel_config.get("pd2").?.string;
+    const pd1 = getPDByName(sdf, pd1_name) catch {
+        return error.PdCannotBeFound;
+    };
+    const pd2 = getPDByName(sdf, pd2_name) catch {
+        return error.PdCannotBeFound;
+    };
+
+    var channel_new = Channel.create(pd1, pd2);
+    channel_new.pd1_end_id = @intCast(channel_config.get("pd1_end_id").?.integer);
+    channel_new.pd2_end_id = @intCast(channel_config.get("pd2_end_id").?.integer);
+
+    const channel_copy = try sdf.allocator.create(Channel);
+
+    channel_copy.* = channel_new;
+    return channel_new;
+}
+
+fn parseAndBuild(sdf: *SystemDescription, json: anytype) ![]const u8 {
+    const pds = json.get("pds").?.array;
+    const channels = json.get("channels").?.array;
+
+    var i: usize = 0;
+    while (i < pds.items.len) : (i += 1) {
+        const pd_config = pds.items[i].object;
+
+        const pd_new = parsePDFromJson(sdf, pd_config) catch {
+            return "Failed to parse PD";
+        };
+        sdf.addProtectionDomain(pd_new);
+    }
+
+    i = 0;
+    while (i < channels.items.len) : (i += 1) {
+        const channel_config = channels.items[i].object;
+
+        const channel_new = parseChannelFromJson(sdf, channel_config) catch |err| {
+            return switch (err) {
+                error.PdCannotBeFound => "Wtf?",
+                else => "??????",
+            };
+            // return "Failed to parse Channel";
+        };
+        sdf.addChannel(channel_new);
+    }
+
+    const xml = sdf.toXml();
+    return xml;
+}
+
 fn printMsg(result_ptr: [*]u8, msg: []const u8) usize {
     std.mem.copyForwards(u8, result_ptr[0..msg.len], msg);
     return msg.len;
@@ -166,6 +279,7 @@ export fn jsonToXml(input_ptr: [*]const u8, input_len: usize, result_ptr: [*]u8)
     var sdf = SystemDescription.create(allocator, board.arch()) catch {
         return printMsg(result_ptr, "Faild to create a system description");
     };
+    // defer sdf.destroy();
 
     const drivers = object.get("drivers").?.array;
     const classes = object.get("deviceClasses").?.array;
@@ -177,9 +291,14 @@ export fn jsonToXml(input_ptr: [*]const u8, input_len: usize, result_ptr: [*]u8)
     };
     defer allocator.free(compatible_drivers);
 
-    const xml = abstractions(allocator, &sdf, blob) catch {
-        return printMsg(result_ptr, "Failed to create sample system: abstractions");
+    // const pds = object.get("pds").?.array;
+    const xml = parseAndBuild(&sdf, object) catch {
+        return printMsg(result_ptr, "Failed to parse the attributes!");
     };
+
+    // const xml = abstractions(allocator, &sdf, blob) catch {
+    //     return printMsg(result_ptr, "Failed to create sample system: abstractions");
+    // };
 
     return printMsg(result_ptr, xml);
 }
