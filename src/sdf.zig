@@ -33,6 +33,25 @@ pub const SystemDescription = struct {
         x86_64,
     };
 
+    pub const SetVar = struct {
+        symbol: []const u8,
+        name: []const u8,
+
+        pub fn create(symbol: []const u8, mr: *MemoryRegion) SetVar {
+            return SetVar {
+                .symbol = symbol,
+                .name = mr.name,
+            };
+        }
+
+        pub fn toXml(setvar: SetVar, sdf: *SystemDescription, writer: ArrayList(u8).Writer, separator: []const u8) !void {
+            const xml = try allocPrint(sdf.allocator, "{s}<setvar symbol=\"{s}\" region_paddr=\"{s}\" />\n", .{ separator, setvar.symbol, setvar.name });
+            defer sdf.allocator.free(xml);
+
+            _ = try writer.write(xml);
+        }
+    };
+
     pub const MemoryRegion = struct {
         name: []const u8,
         size: usize,
@@ -52,8 +71,8 @@ pub const SystemDescription = struct {
             system.allocator.free(mr.name);
         }
 
-        pub fn toXml(mr: MemoryRegion, sdf: *SystemDescription, writer: ArrayList(u8).Writer, separator: []const u8, arch: Arch) !void {
-            const xml = try allocPrint(sdf.allocator, "{s}<memory_region name=\"{s}\" size=\"0x{x}\" page_size=\"0x{x}\"", .{ separator, mr.name, mr.size, mr.page_size.toSize(arch) });
+        pub fn toXml(mr: MemoryRegion, sdf: *SystemDescription, writer: ArrayList(u8).Writer, separator: []const u8) !void {
+            const xml = try allocPrint(sdf.allocator, "{s}<memory_region name=\"{s}\" size=\"0x{x}\" page_size=\"0x{x}\"", .{ separator, mr.name, mr.size, mr.page_size.toSize(sdf.arch) });
             defer sdf.allocator.free(xml);
 
             var final_xml: []const u8 = undefined;
@@ -278,6 +297,8 @@ pub const SystemDescription = struct {
         /// Keeping track of what IDs are available for channels, IRQs, etc
         ids: std.bit_set.StaticBitSet(MAX_IDS),
 
+        setvars: ArrayList(SetVar),
+
         // Matches Microkit implementation
         const MAX_IDS = 62;
         const MAX_IRQS = MAX_IDS;
@@ -306,6 +327,7 @@ pub const SystemDescription = struct {
                 .irqs = ArrayList(Interrupt).initCapacity(sdf.allocator, MAX_IRQS) catch @panic("Could not allocate irqs"),
                 .vm = null,
                 .ids = std.bit_set.StaticBitSet(MAX_IDS).initEmpty(),
+                .setvars = ArrayList(SetVar).init(sdf.allocator),
             };
         }
 
@@ -364,6 +386,10 @@ pub const SystemDescription = struct {
                 irq_with_id.id = try pd.allocateId(null);
                 try pd.irqs.append(irq_with_id);
             }
+        }
+
+        pub fn addSetVar(pd: *ProtectionDomain, setvar: SetVar) void {
+            pd.setvars.append(setvar) catch @panic("Could not add SetVar to ProtectionDomain");
         }
 
         pub fn addChild(pd: *ProtectionDomain, child: *ProtectionDomain) !void {
@@ -426,6 +452,10 @@ pub const SystemDescription = struct {
             // Add interrupts
             for (pd.irqs.items) |irq| {
                 try irq.toXml(sdf, writer, child_separator);
+            }
+            // Add setvars
+            for (pd.setvars.items) |setvar| {
+                try setvar.toXml(sdf, writer, child_separator);
             }
 
             const bottom = try allocPrint(sdf.allocator, "{s}</protection_domain>\n", .{ separator });
@@ -538,7 +568,7 @@ pub const SystemDescription = struct {
         // Use 4-space indent for the XML
         const separator = "    ";
         for (sdf.mrs.items) |mr| {
-            try mr.toXml(sdf, writer, separator, sdf.arch);
+            try mr.toXml(sdf, writer, separator);
         }
         for (sdf.pds.items) |pd| {
             try pd.toXml(sdf, writer, separator, null);

@@ -2545,6 +2545,7 @@
 			watchdog@f0d0 {
 				compatible = "amlogic,meson-gxbb-wdt";
 				reg = <0x00 0xf0d0 0x00 0x10>;
+				interrupts = <0x00 0x0a 0x01>;
 				clocks = <0x11>;
 			};
 

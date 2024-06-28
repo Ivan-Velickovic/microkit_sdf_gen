@@ -60,8 +60,9 @@ const Example = enum {
     virtio,
     virtio_blk,
     abstractions,
-    gdb,
-    kitty,
+    // gdb,
+    // kitty,
+    echo_server,
 
     pub fn fromStr(str: []const u8) !Example {
         inline for (std.meta.fields(Example)) |field| {
@@ -78,8 +79,9 @@ const Example = enum {
             .virtio => try virtio(sdf),
             .abstractions => try abstractions(allocator, sdf, blob),
             .virtio_blk => try virtio_blk(allocator, sdf, blob),
-            .gdb => try gdb(allocator, sdf, blob),
-            .kitty => try kitty(allocator, sdf, blob),
+            // .gdb => try gdb(allocator, sdf, blob),
+            // .kitty => try kitty(allocator, sdf, blob),
+            .echo_server => try echo_server(allocator, sdf, blob),
         }
     }
 
@@ -410,60 +412,60 @@ fn virtio(sdf: *SystemDescription) !void {
 /// Takes in the root DTB node
 /// TODO: there was an issue using the DTB that QEMU dumps. Most likely
 /// something wrong with dtb.zig dependency. Need to investigate.
-fn abstractions(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) !void {
-    const image = ProgramImage.create("uart_driver.elf");
-    var driver = Pd.create(sdf, "uart_driver", image);
-    sdf.addProtectionDomain(&driver);
+fn abstractions(_: Allocator, _: *SystemDescription, _: *dtb.Node) !void {
+    // const image = ProgramImage.create("uart_driver.elf");
+    // var driver = Pd.create(sdf, "uart_driver", image);
+    // sdf.addProtectionDomain(&driver);
 
-    var uart_node: ?*dtb.Node = undefined;
-    // TODO: We would probably want some helper functionality that just takes
-    // the full node name such as "/soc/bus@ff8000000/serial@3000" and would
-    // find the DTB node info that we need. For now, this fine.
-    switch (board) {
-        .odroidc4 => {
-            const soc_node = blob.child("soc").?;
-            const bus_node = soc_node.child("bus@ff800000").?;
-            uart_node = bus_node.child("serial@3000");
-        },
-        .qemu_arm_virt => {
-            uart_node = blob.child(board.uartNode());
-        },
-    }
+    // var uart_node: ?*dtb.Node = undefined;
+    // // TODO: We would probably want some helper functionality that just takes
+    // // the full node name such as "/soc/bus@ff8000000/serial@3000" and would
+    // // find the DTB node info that we need. For now, this fine.
+    // switch (board) {
+    //     .odroidc4 => {
+    //         const soc_node = blob.child("soc").?;
+    //         const bus_node = soc_node.child("bus@ff800000").?;
+    //         uart_node = bus_node.child("serial@3000");
+    //     },
+    //     .qemu_arm_virt => {
+    //         uart_node = blob.child(board.uartNode());
+    //     },
+    // }
 
-    if (uart_node == null) {
-        std.log.err("Could not find UART node '{s}'", .{board.uartNode()});
-        std.process.exit(1);
-    }
+    // if (uart_node == null) {
+    //     std.log.err("Could not find UART node '{s}'", .{board.uartNode()});
+    //     std.process.exit(1);
+    // }
 
-    var serial_system = sddf.SerialSystem.init(allocator, sdf, 0x200000);
-    serial_system.setDriver(&driver, uart_node.?);
+    // var serial_system = sddf.SerialSystem.init(allocator, sdf, 0x200000);
+    // serial_system.setDriver(&driver, uart_node.?);
 
-    // const clients = [_][]const u8{ "client1", "client2", "client3" };
+    // // const clients = [_][]const u8{ "client1", "client2", "client3" };
 
-    const mux_rx_image = ProgramImage.create("mux_rx.elf");
-    var mux_rx = Pd.create(sdf, "mux_rx", mux_rx_image);
-    sdf.addProtectionDomain(&mux_rx);
+    // const mux_rx_image = ProgramImage.create("mux_rx.elf");
+    // var mux_rx = Pd.create(sdf, "mux_rx", mux_rx_image);
+    // sdf.addProtectionDomain(&mux_rx);
 
-    const mux_tx_image = ProgramImage.create("mux_tx.elf");
-    var mux_tx = Pd.create(sdf, "mux_tx", mux_tx_image);
-    sdf.addProtectionDomain(&mux_tx);
+    // const mux_tx_image = ProgramImage.create("mux_tx.elf");
+    // var mux_tx = Pd.create(sdf, "mux_tx", mux_tx_image);
+    // sdf.addProtectionDomain(&mux_tx);
 
-    serial_system.setMultiplexors(&mux_rx, &mux_tx);
+    // serial_system.setMultiplexors(&mux_rx, &mux_tx);
 
-    const client1_image = ProgramImage.create("client1.elf");
-    var client1_pd = Pd.create(sdf, "client1", client1_image);
-    serial_system.addClient(&client1_pd);
-    sdf.addProtectionDomain(&client1_pd);
+    // const client1_image = ProgramImage.create("client1.elf");
+    // var client1_pd = Pd.create(sdf, "client1", client1_image);
+    // serial_system.addClient(&client1_pd);
+    // sdf.addProtectionDomain(&client1_pd);
 
-    const client2_image = ProgramImage.create("client2.elf");
-    var client2_pd = Pd.create(sdf, "client2", client2_image);
-    serial_system.addClient(&client2_pd);
-    sdf.addProtectionDomain(&client2_pd);
+    // const client2_image = ProgramImage.create("client2.elf");
+    // var client2_pd = Pd.create(sdf, "client2", client2_image);
+    // serial_system.addClient(&client2_pd);
+    // sdf.addProtectionDomain(&client2_pd);
 
-    try serial_system.connect();
+    // try serial_system.connect();
 
-    const xml = try sdf.toXml();
-    std.debug.print("{s}", .{xml});
+    // const xml = try sdf.toXml();
+    // std.debug.print("{s}", .{xml});
 }
 
 fn gdb(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) !void {
@@ -510,71 +512,71 @@ fn gdb(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) !void {
     std.debug.print("DEBUGGER HEADER:\n{s}\n", .{ debugger_header });
 }
 
-fn virtio_blk(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) !void {
+fn virtio_blk(_: Allocator, _: *SystemDescription, _: *dtb.Node) !void {
     // UART driver
     // serial muxes
     // two clients which as VMMs
     // block driver VM
-    const image = ProgramImage.create("uart_driver.elf");
-    var driver = Pd.create(sdf, "uart_driver", image);
-    sdf.addProtectionDomain(&driver);
+    // const image = ProgramImage.create("uart_driver.elf");
+    // var driver = Pd.create(sdf, "uart_driver", image);
+    // sdf.addProtectionDomain(&driver);
 
-    var uart_node: ?*dtb.Node = undefined;
-    // TODO: We would probably want some helper functionality that just takes
-    // the full node name such as "/soc/bus@ff8000000/serial@3000" and would
-    // find the DTB node info that we need. For now, this fine.
-    switch (board) {
-        .odroidc4 => {
-            const soc_node = blob.child("soc").?;
-            const bus_node = soc_node.child("bus@ff800000").?;
-            uart_node = bus_node.child("serial@3000");
-        },
-        .qemu_arm_virt => {
-            uart_node = blob.child(board.uartNode());
-        },
-    }
+    // var uart_node: ?*dtb.Node = undefined;
+    // // TODO: We would probably want some helper functionality that just takes
+    // // the full node name such as "/soc/bus@ff8000000/serial@3000" and would
+    // // find the DTB node info that we need. For now, this fine.
+    // switch (board) {
+    //     .odroidc4 => {
+    //         const soc_node = blob.child("soc").?;
+    //         const bus_node = soc_node.child("bus@ff800000").?;
+    //         uart_node = bus_node.child("serial@3000");
+    //     },
+    //     .qemu_arm_virt => {
+    //         uart_node = blob.child(board.uartNode());
+    //     },
+    // }
 
-    if (uart_node == null) {
-        std.log.err("Could not find UART node '{s}'", .{board.uartNode()});
-        std.process.exit(1);
-    }
+    // if (uart_node == null) {
+    //     std.log.err("Could not find UART node '{s}'", .{board.uartNode()});
+    //     std.process.exit(1);
+    // }
 
-    const client1_vmm_image = ProgramImage.create("client_vmm_1.elf");
-    var client1_vmm = Pd.create(sdf, "client_vmm_1", client1_vmm_image);
-    var client1_vm = Vm.create(sdf, "client_vm_1");
-    const client2_vmm_image = ProgramImage.create("client_vmm_2.elf");
-    var client2_vmm = Pd.create(sdf, "client_vmm_2", client2_vmm_image);
-    var client2_vm = Vm.create(sdf, "client_vm_2");
+    // const client1_vmm_image = ProgramImage.create("client_vmm_1.elf");
+    // var client1_vmm = Pd.create(sdf, "client_vmm_1", client1_vmm_image);
+    // var client1_vm = Vm.create(sdf, "client_vm_1");
+    // const client2_vmm_image = ProgramImage.create("client_vmm_2.elf");
+    // var client2_vmm = Pd.create(sdf, "client_vmm_2", client2_vmm_image);
+    // var client2_vm = Vm.create(sdf, "client_vm_2");
 
-    const blk_driver_vmm_image = ProgramImage.create("blk_driver_vmm.elf");
-    var blk_driver_vmm = Pd.create(sdf, "blk_driver_vmm", blk_driver_vmm_image);
-    var blk_driver_vm = Vm.create(sdf, "blk_linux");
+    // const blk_driver_vmm_image = ProgramImage.create("blk_driver_vmm.elf");
+    // var blk_driver_vmm = Pd.create(sdf, "blk_driver_vmm", blk_driver_vmm_image);
+    // var blk_driver_vm = Vm.create(sdf, "blk_linux");
 
-    var vm_system = VirtualMachineSystem.init(allocator, sdf);
-    try vm_system.add(&client1_vmm, &client1_vm, blob);
-    try vm_system.add(&client2_vmm, &client2_vm, blob);
-    try vm_system.add(&blk_driver_vmm, &blk_driver_vm, blob);
+    // var vm_system = VirtualMachineSystem.init(allocator, sdf);
+    // try vm_system.add(&client1_vmm, &client1_vm, blob);
+    // try vm_system.add(&client2_vmm, &client2_vm, blob);
+    // try vm_system.add(&blk_driver_vmm, &blk_driver_vm, blob);
 
-    try vm_system.connect();
+    // try vm_system.connect();
 
-    // Creating serial sub system
-    var serial_system = sddf.SerialSystem.init(allocator, sdf, 0x200000);
-    serial_system.setDriver(&driver, uart_node.?);
+    // // Creating serial sub system
+    // var serial_system = sddf.SerialSystem.init(allocator, sdf, 0x200000);
+    // serial_system.setDriver(&driver, uart_node.?);
 
-    const mux_rx_image = ProgramImage.create("mux_rx.elf");
-    var mux_rx = Pd.create(sdf, "mux_rx", mux_rx_image);
-    sdf.addProtectionDomain(&mux_rx);
+    // const mux_rx_image = ProgramImage.create("mux_rx.elf");
+    // var mux_rx = Pd.create(sdf, "mux_rx", mux_rx_image);
+    // sdf.addProtectionDomain(&mux_rx);
 
-    const mux_tx_image = ProgramImage.create("mux_tx.elf");
-    var mux_tx = Pd.create(sdf, "mux_tx", mux_tx_image);
-    sdf.addProtectionDomain(&mux_tx);
+    // const mux_tx_image = ProgramImage.create("mux_tx.elf");
+    // var mux_tx = Pd.create(sdf, "mux_tx", mux_tx_image);
+    // sdf.addProtectionDomain(&mux_tx);
 
-    serial_system.setMultiplexors(&mux_rx, &mux_tx);
+    // serial_system.setMultiplexors(&mux_rx, &mux_tx);
 
-    try serial_system.connect();
+    // try serial_system.connect();
 
-    const xml = try sdf.toXml();
-    std.debug.print("{s}", .{xml});
+    // const xml = try sdf.toXml();
+    // std.debug.print("{s}", .{xml});
 }
 
 fn kitty(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) !void {
@@ -613,6 +615,108 @@ fn kitty(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) !void {
     // try serial_system.connect();
     const xml = try sdf.toXml();
     std.debug.print("{s}", .{xml});
+}
+
+// One by one we will figure it out.
+/// DONE: 1. Driver is correct and has the right resources
+/// 2. Virtualisers are correct and have the right resources
+/// 3. Copiers are correct and have the right resources
+/// 4. Clients are correct and have the right resources
+/// 5. Benchmark program stuff
+/// Do not worry about the abstraction stuff. First reproduce the echo server,
+/// then consider whether the abstractions are correct.
+fn echo_server(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) !void {
+    const image = ProgramImage.create("uart_driver.elf");
+    var driver = Pd.create(sdf, "uart_driver", image);
+    sdf.addProtectionDomain(&driver);
+
+    var uart_node: ?*dtb.Node = undefined;
+    // TODO: We would probably want some helper functionality that just takes
+    // the full node name such as "/soc/bus@ff8000000/serial@3000" and would
+    // find the DTB node info that we need. For now, this fine.
+    switch (board) {
+        .odroidc4 => {
+            const soc_node = blob.child("soc").?;
+            const bus_node = soc_node.child("bus@ff800000").?;
+            uart_node = bus_node.child("serial@3000");
+        },
+        .qemu_arm_virt => {
+            uart_node = blob.child(board.uartNode());
+        },
+    }
+
+    if (uart_node == null) {
+        std.log.err("Could not find UART node '{s}'", .{board.uartNode()});
+        std.process.exit(1);
+    }
+
+    var serial_virt_rx = Pd.create(sdf, "serial_virt_rx", .{ .path = "serial_virt_rx.elf" });
+    sdf.addProtectionDomain(&serial_virt_rx);
+
+    var serial_virt_tx = Pd.create(sdf, "serial_virt_tx", .{ .path = "serial_virt_tx.elf" });
+    sdf.addProtectionDomain(&serial_virt_tx);
+
+    var serial_system = sddf.SerialSystem.init(allocator, sdf, uart_node.?, &driver, &serial_virt_tx, &serial_virt_rx, .{});
+
+    const ethernet = switch (board) {
+        .odroidc4 => blk: {
+            const soc_node = blob.child("soc").?;
+            break :blk soc_node.child("ethernet@ff3f0000").?;
+        },
+        .qemu_arm_virt => @panic("TODO"),
+    };
+
+    var eth_driver = Pd.create(sdf, "eth_driver", .{ .path = "eth_driver.elf" });
+    sdf.addProtectionDomain(&eth_driver);
+
+    var net_virt_tx = Pd.create(sdf, "net_virt_tx", .{ .path = "net_virt_tx.elf "});
+    sdf.addProtectionDomain(&net_virt_tx);
+
+    var net_virt_rx = Pd.create(sdf, "net_virt_rx", .{ .path = "net_virt_rx.elf "});
+    sdf.addProtectionDomain(&net_virt_rx);
+
+    var net_copier0_rx = Pd.create(sdf, "net_copier0_rx", .{ .path = "net_copier_rx.elf" });
+    sdf.addProtectionDomain(&net_copier0_rx);
+    var net_copier1_rx = Pd.create(sdf, "net_copier1_rx", .{ .path = "net_copier_rx.elf" });
+    sdf.addProtectionDomain(&net_copier1_rx);
+
+    var client0 = Pd.create(sdf, "client0", .{ .path = "lwip.elf" });
+    sdf.addProtectionDomain(&client0);
+    var client1 = Pd.create(sdf, "client1", .{ .path = "lwip.elf" });
+    sdf.addProtectionDomain(&client1);
+
+    var ethernet_system = sddf.NetworkSystem.init(allocator, sdf, ethernet, &eth_driver, &net_virt_rx, &net_virt_tx, .{
+        .region_size = 0x200_000
+    });
+    ethernet_system.addClientWithCopier(&client0, &net_copier0_rx);
+    ethernet_system.addClientWithCopier(&client1, &net_copier1_rx);
+
+    var timer_driver = Pd.create(sdf, "timer_driver", .{ .path = "timer_driver.elf" });
+    sdf.addProtectionDomain(&timer_driver);
+
+    const timer = switch (board) {
+        .odroidc4 => blob.child("soc").?.child("bus@ffd00000").?.child("watchdog@f0d0").?,
+        .qemu_arm_virt => @panic("TODO"),
+    };
+
+    var timer_system = sddf.TimerSystem.init(allocator, sdf, &timer_driver, timer);
+
+    serial_system.addClient(&client0);
+    serial_system.addClient(&client1);
+
+    timer_system.addClient(&client0);
+    timer_system.addClient(&client1);
+
+    try ethernet_system.connect();
+    try timer_system.connect();
+    try serial_system.connect();
+
+    const xml = try sdf.toXml();
+    std.debug.print("{s}", .{xml});
+
+    const file = try std.fs.cwd().createFile("echo_server.system", .{});
+    defer file.close();
+    _ = try file.writeAll(xml);
 }
 
 pub fn main() !void {
