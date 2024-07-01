@@ -120,7 +120,6 @@ fn parseVMFromJson(sdf: *SystemDescription, node_config: anytype) !*Vm {
     vm_new.budget = @intCast(node_config.get("budget").?.integer);
     vm_new.priority = @intCast(node_config.get("priority").?.integer);
     vm_new.period = @intCast(node_config.get("period").?.integer);
-    // vm_new.pp = node_config.get("pp").?.bool;
 
     const vm_copy = try sdf.allocator.create(Vm);
     vm_copy.* = vm_new;
@@ -142,7 +141,7 @@ fn parsePDFromJson(sdf: *SystemDescription, node_config: anytype) !*Pd {
     pd_new.budget = @intCast(node_config.get("budget").?.integer);
     pd_new.priority = @intCast(node_config.get("priority").?.integer);
     pd_new.period = @intCast(node_config.get("period").?.integer);
-    // pd_new.pp = node_config.get("pp").?.bool;
+    pd_new.pp = node_config.get("pp").?.bool;
 
     const children = node_config.get("children").?.array;
     var i: usize = 0;
@@ -235,10 +234,65 @@ fn parseMapFromJson(sdf: *SystemDescription, map_config: anytype) !Map {
     return map;
 }
 
-fn parseAndBuild(sdf: *SystemDescription, json: anytype) ![]const u8 {
+fn parseSddfSubsystemFromJson(sdf: *SystemDescription, subsystem_config: anytype, blob: *dtb.Node) !void {
+    const class = subsystem_config.get("class").?.string;
+    const driver_name = subsystem_config.get("driver_name").?.string;
+    const mux_tx_name = subsystem_config.get("serial_mux_tx").?.string;
+    const mux_rx_name = subsystem_config.get("serial_mux_rx").?.string;
+
+    if (std.mem.eql(u8, class, "serial")) {
+        const clients = subsystem_config.get("clients").?.array;
+        if (clients.items.len != 2) {
+            return;
+        }
+        const client1_name = clients.items[0].string;
+        const client2_name = clients.items[1].string;
+
+        var uart_node: ?*dtb.Node = undefined;
+        switch (board) {
+            .odroidc4 => {
+                const soc_node = blob.child("soc").?;
+                const bus_node = soc_node.child("bus@ff800000").?;
+                uart_node = bus_node.child("serial@3000");
+            },
+            .qemu_arm_virt => {
+                uart_node = blob.child(board.uartNode());
+            },
+        }
+        const driver = getPDByName(sdf, driver_name) catch {
+            return error.PdCannotBeFound;
+        };
+        var serial_system = sddf.SerialSystem.init(sdf.allocator, sdf, 0x200000);
+        serial_system.setDriver(driver, uart_node.?);
+
+        const mux_tx = getPDByName(sdf, mux_tx_name) catch {
+            return error.PdCannotBeFound;
+        };
+        const mux_rx = getPDByName(sdf, mux_rx_name) catch {
+            return error.PdCannotBeFound;
+        };
+
+        serial_system.setMultiplexors(mux_rx, mux_tx);
+
+        const client1_pd = getPDByName(sdf, client1_name) catch {
+            return error.PdCannotBeFound;
+        };
+        const client2_pd = getPDByName(sdf, client2_name) catch {
+            return error.PdCannotBeFound;
+        };
+        serial_system.addClient(client1_pd);
+        serial_system.addClient(client2_pd);
+        serial_system.connect() catch {
+            return error.ConnectError;
+        };
+    }
+}
+
+fn parseAndBuild(sdf: *SystemDescription, json: anytype, blob: *dtb.Node) ![]const u8 {
     const pds = json.get("pds").?.array;
     const channels = json.get("channels").?.array;
     const mrs = json.get("mrs").?.array;
+    const sddf_subsystems = json.get("sddf_subsystems").?.array;
 
     var i: usize = 0;
     while (i < mrs.items.len) : (i += 1) {
@@ -268,6 +322,15 @@ fn parseAndBuild(sdf: *SystemDescription, json: anytype) ![]const u8 {
             return "Failed to parse Channel";
         };
         sdf.addChannel(channel_new);
+    }
+
+    i = 0;
+    while (i < sddf_subsystems.items.len) : (i += 1) {
+        const subsystem_config = sddf_subsystems.items[i].object;
+
+        parseSddfSubsystemFromJson(sdf, subsystem_config, blob) catch {
+            return "Failed to parse sddf_subsystem";
+        };
     }
 
     const xml = sdf.toXml();
@@ -341,8 +404,7 @@ export fn jsonToXml(input_ptr: [*]const u8, input_len: usize, result_ptr: [*]u8)
     };
     defer allocator.free(compatible_drivers);
 
-    // const pds = object.get("pds").?.array;
-    const xml = parseAndBuild(&sdf, object) catch {
+    const xml = parseAndBuild(&sdf, object, blob) catch {
         return printMsg(result_ptr, "Failed to parse the attributes!");
     };
 
