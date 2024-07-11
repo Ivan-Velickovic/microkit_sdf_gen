@@ -37,7 +37,7 @@ pub const SystemDescription = struct {
         symbol: []const u8,
         name: []const u8,
 
-        pub fn create(symbol: []const u8, mr: *MemoryRegion) SetVar {
+        pub fn create(symbol: []const u8, mr: *const MemoryRegion) SetVar {
             return SetVar {
                 .symbol = symbol,
                 .name = mr.name,
@@ -145,11 +145,9 @@ pub const SystemDescription = struct {
         setvar_vaddr: ?[]const u8,
 
         pub const Permissions = packed struct {
-            // TODO: the write-only mappings not being allowed
-            // needs to be enforced here
+            // TODO: check that perms are not write-only
             read: bool = false,
-            /// On all architectures of seL4, write permissions are required
-            write: bool = true,
+            write: bool = false,
             execute: bool = false,
 
             pub fn toString(perms: Permissions, buf: *[4]u8) usize {
@@ -181,6 +179,9 @@ pub const SystemDescription = struct {
                 var perms: Permissions = .{};
                 if (read_count > 0) {
                     perms.read = true;
+                }
+                if (write_count > 0) {
+                    perms.write = true;
                 }
                 if (exec_count > 0) {
                     perms.execute = true;
@@ -229,6 +230,8 @@ pub const SystemDescription = struct {
     pub const VirtualMachine = struct {
         name: []const u8,
         priority: u8 = 100,
+        // TODO: this budget and period is worng, the period needs to be the same as
+        // the budget
         budget: usize = 100,
         period: usize = 100,
         passive: bool = false,
@@ -282,8 +285,8 @@ pub const SystemDescription = struct {
         /// Scheduling parameters
         /// The policy here is to follow the default values that Microkit uses.
         priority: u8 = 100,
-        budget: usize = 100,
-        period: usize = 100,
+        budget: ?usize,
+        period: ?usize,
         passive: bool = false,
         /// Whether there is an available 'protected' entry point
         pp: bool = false,
@@ -328,6 +331,8 @@ pub const SystemDescription = struct {
                 .vm = null,
                 .ids = std.bit_set.StaticBitSet(MAX_IDS).initEmpty(),
                 .setvars = ArrayList(SetVar).init(sdf.allocator),
+                .budget = null,
+                .period = null,
             };
         }
 
@@ -396,7 +401,8 @@ pub const SystemDescription = struct {
             try pd.child_pds.append(child);
         }
 
-        pub fn getMapableVaddr(pd: *ProtectionDomain, _: usize) usize {
+        // TODO: get rid of this extra arg?
+        pub fn getMapableVaddr(pd: *ProtectionDomain, mr: *const MemoryRegion) usize {
             // TODO: should make sure we don't have a way of giving an invalid vaddr back (e.g on 32-bit systems this is more of a concern)
 
             // The approach for this is fairly simple and naive, we just loop
@@ -407,6 +413,14 @@ pub const SystemDescription = struct {
             for (pd.maps.items) |map| {
                 if (map.vaddr >= next_vaddr) {
                     next_vaddr = map.vaddr + map.mr.size;
+                    // TODO: fix this
+                    const page_size = mr.page_size.toSize(.aarch64);
+                    const diff = next_vaddr % page_size;
+                    if (diff != 0) {
+                        // In the case the next virtual address is not page aligned, we need
+                        // to increase it further.
+                        next_vaddr += page_size - diff;
+                    }
                 }
             }
 
@@ -417,10 +431,13 @@ pub const SystemDescription = struct {
             // If we are given an ID, this PD is in fact a child PD and we have to
             // specify the ID for the root PD to use when referring to this child PD.
             // TODO: simplify this whole logic, it's quite messy right now
+            // TODO: find a better way of caluclating the period
+            const budget = if (pd.budget) |budget| budget else 100;
+            const period = if (pd.period) |period| period else budget;
             const attributes_str =
                 \\priority="{}" budget="{}" period="{}" passive="{}" pp="{}"
             ;
-            const attributes_xml = try allocPrint(sdf.allocator, attributes_str, .{ pd.priority, pd.budget, pd.period, pd.passive, pd.pp });
+            const attributes_xml = try allocPrint(sdf.allocator, attributes_str, .{ pd.priority, budget, period, pd.passive, pd.pp });
             defer sdf.allocator.free(attributes_xml);
             var top: []const u8 = undefined;
             if (id) |id_val| {

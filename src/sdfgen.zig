@@ -667,12 +667,18 @@ fn echo_server(allocator: Allocator, sdf: *SystemDescription, blob: *dtb.Node) !
     };
 
     var eth_driver = Pd.create(sdf, "eth_driver", .{ .path = "eth_driver.elf" });
+    eth_driver.budget = 100;
+    eth_driver.period = 400;
+    eth_driver.priority = 101;
     sdf.addProtectionDomain(&eth_driver);
 
     var net_virt_tx = Pd.create(sdf, "net_virt_tx", .{ .path = "net_virt_tx.elf "});
+    net_virt_tx.priority = 100;
+    net_virt_tx.budget = 20000;
     sdf.addProtectionDomain(&net_virt_tx);
 
     var net_virt_rx = Pd.create(sdf, "net_virt_rx", .{ .path = "net_virt_rx.elf "});
+    net_virt_tx.priority = 99;
     sdf.addProtectionDomain(&net_virt_rx);
 
     var net_copier0_rx = Pd.create(sdf, "net_copier0_rx", .{ .path = "net_copier_rx.elf" });

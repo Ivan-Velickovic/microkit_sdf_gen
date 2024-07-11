@@ -346,7 +346,7 @@ pub const SerialSystem = struct {
         region_size: usize = 0x1000,
     };
 
-    const REGIONS = [_][]const u8{ "data", "used", "free" };
+    const REGIONS = [_][]const u8{ "data", "queue" };
 
     pub fn init(allocator: Allocator, sdf: *SystemDescription, device: *dtb.Node, driver: *Pd, virt_tx: *Pd, virt_rx: *Pd, options: Options) SerialSystem {
         const page_size = SystemDescription.MemoryRegion.PageSize.optimal(sdf, options.region_size);
@@ -374,12 +374,12 @@ pub const SerialSystem = struct {
             system.sdf.addMemoryRegion(mr);
             const perms: Map.Permissions = .{ .read = true, .write = true };
             // @ivanv: vaddr has invariant that needs to be checked
-            const virt_vaddr = system.virt_rx.getMapableVaddr(mr.size);
+            const virt_vaddr = system.virt_rx.getMapableVaddr(&mr);
             const virt_setvar_vaddr = std.fmt.allocPrint(system.allocator, "rx_{s}_driver", .{ region }) catch @panic("OOM");
             const virt_map = Map.create(mr, virt_vaddr, perms, true, virt_setvar_vaddr);
             system.virt_rx.addMap(virt_map);
 
-            const driver_vaddr = system.driver.getMapableVaddr(mr.size);
+            const driver_vaddr = system.driver.getMapableVaddr(&mr);
             const driver_setvar_vaddr = std.fmt.allocPrint(system.allocator, "rx_{s}", .{ region }) catch @panic("OOM");
             const driver_map = Map.create(mr, driver_vaddr, perms, true, driver_setvar_vaddr);
             system.driver.addMap(driver_map);
@@ -393,12 +393,12 @@ pub const SerialSystem = struct {
             system.sdf.addMemoryRegion(mr);
             const perms: Map.Permissions = .{ .read = true, .write = true };
             // @ivanv: vaddr has invariant that needs to be checked
-            const virt_vaddr = system.virt_tx.getMapableVaddr(mr.size);
+            const virt_vaddr = system.virt_tx.getMapableVaddr(&mr);
             const virt_setvar_vaddr = std.fmt.allocPrint(system.allocator, "tx_{s}_driver", .{ region }) catch @panic("OOM");
             const virt_map = Map.create(mr, virt_vaddr, perms, true, virt_setvar_vaddr);
             system.virt_tx.addMap(virt_map);
 
-            const driver_vaddr = system.driver.getMapableVaddr(mr.size);
+            const driver_vaddr = system.driver.getMapableVaddr(&mr);
             const driver_setvar_vaddr = std.fmt.allocPrint(system.allocator, "tx_{s}", .{ region }) catch @panic("OOM");
             const driver_map = Map.create(mr, driver_vaddr, perms, true, driver_setvar_vaddr);
             system.driver.addMap(driver_map);
@@ -412,11 +412,11 @@ pub const SerialSystem = struct {
             system.sdf.addMemoryRegion(mr);
             const perms: Map.Permissions = .{ .read = true, .write = true };
             // @ivanv: vaddr has invariant that needs to be checked
-            const virt_vaddr = system.virt_rx.getMapableVaddr(mr.size);
+            const virt_vaddr = system.virt_rx.getMapableVaddr(&mr);
             const virt_map = Map.create(mr, virt_vaddr, perms, true, null);
             system.virt_rx.addMap(virt_map);
 
-            const client_vaddr = client.getMapableVaddr(mr.size);
+            const client_vaddr = client.getMapableVaddr(&mr);
             const client_map = Map.create(mr, client_vaddr, perms, true, null);
             client.addMap(client_map);
         }
@@ -429,11 +429,11 @@ pub const SerialSystem = struct {
             system.sdf.addMemoryRegion(mr);
             const perms: Map.Permissions = .{ .read = true, .write = true };
             // @ivanv: vaddr has invariant that needs to be checked
-            const virt_vaddr = system.virt_tx.getMapableVaddr(mr.size);
+            const virt_vaddr = system.virt_tx.getMapableVaddr(&mr);
             const virt_map = Map.create(mr, virt_vaddr, perms, true, null);
             system.virt_tx.addMap(virt_map);
 
-            const client_vaddr = client.getMapableVaddr(mr.size);
+            const client_vaddr = client.getMapableVaddr(&mr);
             const client_map = Map.create(mr, client_vaddr, perms, true, null);
             client.addMap(client_map);
         }
@@ -520,21 +520,26 @@ pub const NetworkSystem = struct {
             const mr_name = std.fmt.allocPrint(system.allocator, "net_driver_rx_{s}", .{ region.name }) catch @panic("OOM");
             const mr = Mr.create(system.sdf, mr_name, system.region_size, null, system.page_size);
             system.sdf.addMemoryRegion(mr);
-            const perms: Map.Permissions = .{ .read = true, .write = true };
+            const perms = switch (@as(Region, @enumFromInt(region.value))) {
+                .data => .{ .read = true },
+                else => .{ .read = true, .write = true },
+            };
             // Data regions are not to be mapped in the driver's address space
             // @ivanv: gross syntax
             if (@as(Region, @enumFromInt(region.value)) != .data) {
-                const driver_vaddr = system.driver.getMapableVaddr(mr.size);
+                const driver_vaddr = system.driver.getMapableVaddr(&mr);
                 const driver_setvar_vaddr = std.fmt.allocPrint(system.allocator, "rx_{s}", .{ region.name }) catch @panic("OOM");
                 const driver_map = Map.create(mr, driver_vaddr, perms, true, driver_setvar_vaddr);
                 system.driver.addMap(driver_map);
-
-                // @ivanv: vaddr has invariant that needs to be checked
-                const virt_vaddr = system.virt_rx.getMapableVaddr(mr.size);
-                const virt_setvar_vaddr = std.fmt.allocPrint(system.allocator, "rx_{s}_driver", .{ region.name }) catch @panic("OOM");
-                const virt_map = Map.create(mr, virt_vaddr, perms, true, virt_setvar_vaddr);
-                system.virt_rx.addMap(virt_map);
+            } else {
+                system.virt_rx.addSetVar(SetVar.create("buffer_data_paddr", &mr));
             }
+
+            // @ivanv: vaddr has invariant that needs to be checked
+            const virt_vaddr = system.virt_rx.getMapableVaddr(&mr);
+            const virt_setvar_vaddr = std.fmt.allocPrint(system.allocator, "rx_{s}_driver", .{ region.name }) catch @panic("OOM");
+            const virt_map = Map.create(mr, virt_vaddr, perms, true, virt_setvar_vaddr);
+            system.virt_rx.addMap(virt_map);
         }
     }
 
@@ -547,13 +552,13 @@ pub const NetworkSystem = struct {
             // Data regions are not to be mapped in the driver's address space
             // @ivanv: gross syntax
             if (@as(Region, @enumFromInt(region.value)) != .data) {
-                const driver_vaddr = system.driver.getMapableVaddr(mr.size);
+                const driver_vaddr = system.driver.getMapableVaddr(&mr);
                 const driver_setvar_vaddr = std.fmt.allocPrint(system.allocator, "tx_{s}", .{ region.name }) catch @panic("OOM");
                 const driver_map = Map.create(mr, driver_vaddr, perms, true, driver_setvar_vaddr);
                 system.driver.addMap(driver_map);
 
                 // @ivanv: vaddr has invariant that needs to be checked
-                const virt_vaddr = system.virt_tx.getMapableVaddr(mr.size);
+                const virt_vaddr = system.virt_tx.getMapableVaddr(&mr);
                 const virt_setvar_vaddr = std.fmt.allocPrint(system.allocator, "tx_{s}_driver", .{ region.name }) catch @panic("OOM");
                 const virt_map = Map.create(mr, virt_vaddr, perms, true, virt_setvar_vaddr);
                 system.virt_tx.addMap(virt_map);
@@ -568,11 +573,11 @@ pub const NetworkSystem = struct {
             system.sdf.addMemoryRegion(mr);
             const perms: Map.Permissions = .{ .read = true, .write = true };
             // @ivanv: vaddr has invariant that needs to be checked
-            const virt_vaddr = rx.getMapableVaddr(mr.size);
+            const virt_vaddr = rx.getMapableVaddr(&mr);
             const virt_map = Map.create(mr, virt_vaddr, perms, true, null);
             rx.addMap(virt_map);
 
-            const client_vaddr = client.getMapableVaddr(mr.size);
+            const client_vaddr = client.getMapableVaddr(&mr);
             const client_map = Map.create(mr, client_vaddr, perms, true, null);
             client.addMap(client_map);
         }
@@ -585,11 +590,11 @@ pub const NetworkSystem = struct {
             system.sdf.addMemoryRegion(mr);
             const perms: Map.Permissions = .{ .read = true, .write = true };
             // @ivanv: vaddr has invariant that needs to be checked
-            const virt_vaddr = tx.getMapableVaddr(mr.size);
+            const virt_vaddr = tx.getMapableVaddr(&mr);
             const virt_map = Map.create(mr, virt_vaddr, perms, true, null);
             tx.addMap(virt_map);
 
-            const client_vaddr = client.getMapableVaddr(mr.size);
+            const client_vaddr = client.getMapableVaddr(&mr);
             const client_map = Map.create(mr, client_vaddr, perms, true, null);
             client.addMap(client_map);
         }
@@ -597,16 +602,16 @@ pub const NetworkSystem = struct {
 
     fn copierRxConnect(system: *NetworkSystem, copier: *Pd) void {
         inline for (.{ Region.active, Region.free }) |region| {
-            const mr_name = std.fmt.allocPrint(system.allocator, "net_copier_{s}_{s}", .{ copier.name, @tagName(region) }) catch @panic("OOM");
+            const mr_name = std.fmt.allocPrint(system.allocator, "net_{s}_{s}", .{ copier.name, @tagName(region) }) catch @panic("OOM");
             const mr = Mr.create(system.sdf, mr_name, system.region_size, null, system.page_size);
             system.sdf.addMemoryRegion(mr);
 
             // Map the MR into the virtualiser RX and copier RX
-            const virt_vaddr = system.virt_rx.getMapableVaddr(mr.size);
+            const virt_vaddr = system.virt_rx.getMapableVaddr(&mr);
             const virt_map = Map.create(mr, virt_vaddr, .{ .read = true, .write = true }, true, null);
             system.virt_rx.addMap(virt_map);
 
-            const copier_vaddr = copier.getMapableVaddr(mr.size);
+            const copier_vaddr = copier.getMapableVaddr(&mr);
             const copier_map = Map.create(mr, copier_vaddr, .{ .read = true, .write = true }, true, null);
             copier.addMap(copier_map);
         }
@@ -622,7 +627,7 @@ pub const NetworkSystem = struct {
         system.sdf.addMemoryRegion(hw_ring_buffer_mr);
         system.driver.addMap(Map.create(
             hw_ring_buffer_mr,
-            system.driver.getMapableVaddr(hw_ring_buffer_mr.size),
+            system.driver.getMapableVaddr(&hw_ring_buffer_mr),
             .{ .read = true, .write = true },
             false,
             "hw_ring_buffer_vaddr"
@@ -673,8 +678,10 @@ pub fn createDriver(sdf: *SystemDescription, pd: *Pd, device: *dtb.Node) !void {
 
     const device_reg = device.prop(.Reg).?;
     const interrupts = device.prop(.Interrupts).?;
-    // TODO: casting from u128 to usize
-    var device_paddr: usize = @intCast(device_reg[0][0]);
+    // TODO: casting from u128 to u64
+    var device_paddr: u64 = @intCast(device_reg[0][0]);
+    // Some device registers may not be page aligned so we do that here.
+    device_paddr = device_paddr - (device_paddr % 0x1000);
 
     // Why is this logic needed? Well it turns out device trees are great and the
     // region of memory that a device occupies in physical memory is... not in the
@@ -739,7 +746,7 @@ pub fn createDriver(sdf: *SystemDescription, pd: *Pd, device: *dtb.Node) !void {
         sdf.addMemoryRegion(mr);
 
         const perms = Map.Permissions.fromString(region.perms);
-        const vaddr = pd.getMapableVaddr(mr.size);
+        const vaddr = pd.getMapableVaddr(&mr);
         const map = Map.create(mr, vaddr, perms, region.cached, region.setvar_vaddr);
         pd.addMap(map);
     }
